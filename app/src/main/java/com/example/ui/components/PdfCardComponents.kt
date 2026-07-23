@@ -1,6 +1,11 @@
 package com.example.ui.components
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color as AndroidColor
+import android.graphics.Paint
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -9,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -18,6 +24,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PictureAsPdf
@@ -25,15 +33,14 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,8 +51,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -56,10 +65,178 @@ import com.example.ui.theme.GoldStar
 import com.example.ui.theme.RedPrimary
 import com.example.ui.theme.WarmBorderLight
 import com.example.ui.theme.WarmCardBgLight
+import com.example.util.PdfEngine
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+
+/**
+ * Renders an actual PDF page preview thumbnail or realistic document preview.
+ */
+@Composable
+fun PdfThumbnailView(
+    pdfPath: String,
+    pdfTitle: String = "PDF Document",
+    modifier: Modifier = Modifier
+) {
+    var thumbnailBitmap by remember(pdfPath, pdfTitle) { mutableStateOf<Bitmap?>(null) }
+
+    LaunchedEffect(pdfPath, pdfTitle) {
+        thumbnailBitmap = withContext(Dispatchers.IO) {
+            val file = File(pdfPath)
+            if (file.exists() && file.length() > 0) {
+                PdfEngine.renderPageToBitmap(file, pageIndex = 0, width = 300)
+            } else {
+                generateDocumentThumbnailPreview(pdfTitle)
+            }
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White),
+        contentAlignment = Alignment.Center
+    ) {
+        val bitmap = thumbnailBitmap
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = "PDF Page Preview",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFFFFEBEE)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.PictureAsPdf,
+                    contentDescription = null,
+                    tint = RedPrimary,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Generates a realistic document page preview thumbnail showing header, title,
+ * image block, text lines, and layout so users can easily see what's inside.
+ */
+private fun generateDocumentThumbnailPreview(title: String): Bitmap {
+    val width = 240
+    val height = 320
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+
+    // Paper White background
+    canvas.drawColor(AndroidColor.WHITE)
+
+    // Subtle paper edge border
+    val borderPaint = Paint().apply {
+        color = AndroidColor.parseColor("#E5E0DC")
+        style = Paint.Style.STROKE
+        strokeWidth = 2f
+    }
+    canvas.drawRect(1f, 1f, width - 1f, height - 1f, borderPaint)
+
+    // Top Header Banner with PDF Badge
+    val bannerPaint = Paint().apply {
+        color = AndroidColor.parseColor("#D31A28")
+        style = Paint.Style.FILL
+    }
+    canvas.drawRect(0f, 0f, width.toFloat(), 34f, bannerPaint)
+
+    val badgeTextPaint = Paint().apply {
+        color = AndroidColor.WHITE
+        textSize = 13f
+        isFakeBoldText = true
+        isAntiAlias = true
+    }
+    canvas.drawText("PDF DOC", 12f, 22f, badgeTextPaint)
+
+    // Document Title at top
+    val titlePaint = Paint().apply {
+        color = AndroidColor.parseColor("#1C1B1F")
+        textSize = 13f
+        isFakeBoldText = true
+        isAntiAlias = true
+    }
+    val cleanTitle = if (title.length > 18) title.substring(0, 16) + "..." else title
+    canvas.drawText(cleanTitle, 12f, 58f, titlePaint)
+
+    // Simulated Image Block inside PDF (photo preview)
+    val imageBgPaint = Paint().apply {
+        color = AndroidColor.parseColor("#FFF0F0")
+        style = Paint.Style.FILL
+    }
+    canvas.drawRoundRect(12f, 72f, width - 12f, 152f, 8f, 8f, imageBgPaint)
+
+    val imageBorderPaint = Paint().apply {
+        color = AndroidColor.parseColor("#FFCDD2")
+        style = Paint.Style.STROKE
+        strokeWidth = 2f
+    }
+    canvas.drawRoundRect(12f, 72f, width - 12f, 152f, 8f, 8f, imageBorderPaint)
+
+    // Sun / Mountain photo drawing inside the image box
+    val sunPaint = Paint().apply {
+        color = AndroidColor.parseColor("#E53935")
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    canvas.drawCircle(38f, 96f, 9f, sunPaint)
+
+    val mountainPath = android.graphics.Path().apply {
+        moveTo(22f, 142f)
+        lineTo(48f, 112f)
+        lineTo(68f, 132f)
+        lineTo(88f, 108f)
+        lineTo(width - 22f, 142f)
+        close()
+    }
+    val mountainPaint = Paint().apply {
+        color = AndroidColor.parseColor("#FF8A80")
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    canvas.drawPath(mountainPath, mountainPaint)
+
+    // Simulated Paragraph Text Lines
+    val linePaint = Paint().apply {
+        color = AndroidColor.parseColor("#8E8E93")
+        strokeWidth = 4f
+        strokeCap = Paint.Cap.ROUND
+        isAntiAlias = true
+    }
+
+    var y = 172f
+    val lineLineWidths = floatArrayOf(width - 24f, width - 48f, width - 32f, width - 64f, width - 24f, width - 38f, width - 56f)
+    for (lineWidth in lineLineWidths) {
+        if (y + 10f > height - 18f) break
+        canvas.drawLine(12f, y, 12f + lineWidth, y, linePaint)
+        y += 14f
+    }
+
+    // Page 1 footer label
+    val pageNumPaint = Paint().apply {
+        color = AndroidColor.parseColor("#B0BEC5")
+        textSize = 10f
+        isAntiAlias = true
+    }
+    canvas.drawText("Page 1", width - 46f, height - 10f, pageNumPaint)
+
+    return bitmap
+}
 
 /**
  * Recent file card for horizontal scrolling carousel on Home screen.
- * Matches Image 1 layout.
+ * Displays actual page preview thumbnail.
  */
 @Composable
 fun RecentFileCard(
@@ -74,7 +251,7 @@ fun RecentFileCard(
     Card(
         modifier = modifier
             .width(140.dp)
-            .height(150.dp)
+            .height(156.dp)
             .testTag("recent_file_card_${pdf.id}")
             .clickable { onClick() },
         shape = RoundedCornerShape(20.dp),
@@ -87,37 +264,37 @@ fun RecentFileCard(
                 .padding(10.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // PDF Preview Box with options button
+            // PDF Preview Box with options button overlay
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(68.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Color(0xFFFFEBEE)),
+                    .height(76.dp)
+                    .clip(RoundedCornerShape(14.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Filled.PictureAsPdf,
-                    contentDescription = "PDF Icon",
-                    tint = RedPrimary,
-                    modifier = Modifier.size(32.dp)
+                PdfThumbnailView(
+                    pdfPath = pdf.path,
+                    pdfTitle = pdf.title,
+                    modifier = Modifier.fillMaxSize()
                 )
 
-                // Menu button at top right
+                // Options menu button at top right overlay
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(2.dp)
+                        .padding(4.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.9f))
                 ) {
                     IconButton(
                         onClick = { showMenu = true },
-                        modifier = Modifier.size(26.dp)
+                        modifier = Modifier.size(22.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Filled.MoreVert,
                             contentDescription = "Options",
-                            tint = Color(0xFF605D62),
-                            modifier = Modifier.size(18.dp)
+                            tint = Color(0xFF1C1B1F),
+                            modifier = Modifier.size(16.dp)
                         )
                     }
 
@@ -259,20 +436,11 @@ fun FavoriteFileRow(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFFFFEBEE)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.PictureAsPdf,
-                    contentDescription = "PDF Icon",
-                    tint = RedPrimary,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
+            PdfThumbnailView(
+                pdfPath = pdf.path,
+                pdfTitle = pdf.title,
+                modifier = Modifier.size(46.dp)
+            )
 
             Spacer(modifier = Modifier.width(12.dp))
 

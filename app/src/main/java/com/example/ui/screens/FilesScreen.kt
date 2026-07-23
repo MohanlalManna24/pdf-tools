@@ -61,6 +61,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.db.PdfEntity
+import com.example.ui.components.PdfThumbnailView
 import com.example.ui.theme.GoldStar
 import com.example.ui.theme.RedPrimary
 import com.example.ui.theme.WarmBorderLight
@@ -303,20 +304,11 @@ private fun FileItemCard(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(46.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFFFFEBEE)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.PictureAsPdf,
-                    contentDescription = null,
-                    tint = RedPrimary,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
+            PdfThumbnailView(
+                pdfPath = pdf.path,
+                pdfTitle = pdf.title,
+                modifier = Modifier.size(46.dp)
+            )
 
             Spacer(modifier = Modifier.width(12.dp))
 
