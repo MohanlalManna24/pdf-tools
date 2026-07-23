@@ -211,7 +211,11 @@ class MainActivity : ComponentActivity() {
                                                     SettingsScreen(
                                                         viewModel = viewModel,
                                                         onNavigatePrivacy = { currentScreen = AppScreen.Privacy },
-                                                        onNavigateAbout = { currentScreen = AppScreen.About }
+                                                        onNavigateAbout = { currentScreen = AppScreen.About },
+                                                        onNavigateBack = {
+                                                            currentTab = NavTab.HOME
+                                                            currentScreen = AppScreen.MainTab(NavTab.HOME)
+                                                        }
                                                     )
                                                 }
                                             }
