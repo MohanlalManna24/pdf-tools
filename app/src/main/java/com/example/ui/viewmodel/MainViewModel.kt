@@ -92,6 +92,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun renamePdf(pdf: PdfEntity, newNameRaw: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val trimmed = newNameRaw.trim()
+            if (trimmed.isBlank()) return@launch
+            val formattedTitle = if (trimmed.endsWith(".pdf", ignoreCase = true)) trimmed else "$trimmed.pdf"
+
+            var updatedPath = pdf.path
+            try {
+                val oldFile = File(pdf.path)
+                if (oldFile.exists() && oldFile.parentFile != null) {
+                    val newFile = File(oldFile.parentFile, formattedTitle)
+                    if (oldFile.renameTo(newFile)) {
+                        updatedPath = newFile.absolutePath
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            val updatedEntity = pdf.copy(
+                title = formattedTitle,
+                path = updatedPath,
+                timestamp = System.currentTimeMillis()
+            )
+            repository.updatePdf(updatedEntity)
+            if (_activePdf.value?.id == pdf.id) {
+                _activePdf.value = updatedEntity
+            }
+        }
+    }
+
     fun deleteFile(pdf: PdfEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             try {

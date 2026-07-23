@@ -249,7 +249,10 @@ class MainActivity : ComponentActivity() {
                                         is AppScreen.PdfReader -> {
                                             PdfReaderScreen(
                                                 pdf = activePdf,
-                                                onBack = { currentScreen = AppScreen.MainTab(currentTab) }
+                                                onBack = { currentScreen = AppScreen.MainTab(currentTab) },
+                                                onRenamePdf = { targetPdf, newName ->
+                                                    viewModel.renamePdf(targetPdf, newName)
+                                                }
                                             )
                                         }
 

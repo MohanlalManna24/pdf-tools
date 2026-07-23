@@ -27,10 +27,14 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarOutline
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -38,7 +42,10 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -235,6 +242,81 @@ private fun generateDocumentThumbnailPreview(title: String): Bitmap {
 }
 
 /**
+ * Dialog for renaming a PDF file.
+ */
+@Composable
+fun RenamePdfDialog(
+    currentTitle: String,
+    onDismiss: () -> Unit,
+    onRename: (String) -> Unit
+) {
+    val initialName = remember(currentTitle) {
+        if (currentTitle.endsWith(".pdf", ignoreCase = true)) {
+            currentTitle.substring(0, currentTitle.length - 4)
+        } else {
+            currentTitle
+        }
+    }
+    var newTitle by remember { mutableStateOf(initialName) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Rename Document",
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                color = Color(0xFF1C1B1F)
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    text = "Enter a new name for this PDF file:",
+                    fontSize = 13.sp,
+                    color = Color(0xFF605D62)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = newTitle,
+                    onValueChange = { newTitle = it },
+                    singleLine = true,
+                    label = { Text("File Name") },
+                    trailingIcon = { Text(".pdf", color = Color.Gray, modifier = Modifier.padding(end = 8.dp)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = RedPrimary,
+                        focusedLabelColor = RedPrimary
+                    )
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (newTitle.isNotBlank()) {
+                        onRename(newTitle.trim())
+                    }
+                    onDismiss()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = RedPrimary),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text("Rename", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = Color(0xFF757575))
+            }
+        },
+        containerColor = Color.White,
+        shape = RoundedCornerShape(20.dp)
+    )
+}
+
+/**
  * Recent file card for horizontal scrolling carousel on Home screen.
  * Displays actual page preview thumbnail.
  */
@@ -242,6 +324,7 @@ private fun generateDocumentThumbnailPreview(title: String): Bitmap {
 fun RecentFileCard(
     pdf: PdfEntity,
     onClick: () -> Unit,
+    onRename: (() -> Unit)? = null,
     onRemove: (() -> Unit)? = null,
     onSaveToDevice: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -302,6 +385,16 @@ fun RecentFileCard(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false }
                     ) {
+                        if (onRename != null) {
+                            DropdownMenuItem(
+                                text = { Text("Rename File", fontSize = 13.sp) },
+                                onClick = {
+                                    showMenu = false
+                                    onRename()
+                                },
+                                leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                            )
+                        }
                         if (onSaveToDevice != null) {
                             DropdownMenuItem(
                                 text = { Text("Save to Local Device", fontSize = 13.sp) },
@@ -415,6 +508,7 @@ fun FavoriteFileRow(
     pdf: PdfEntity,
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onRename: (() -> Unit)? = null,
     onRemove: (() -> Unit)? = null,
     onSaveToDevice: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -481,6 +575,16 @@ fun FavoriteFileRow(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false }
                 ) {
+                    if (onRename != null) {
+                        DropdownMenuItem(
+                            text = { Text("Rename File", fontSize = 13.sp) },
+                            onClick = {
+                                showMenu = false
+                                onRename()
+                            },
+                            leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                        )
+                    }
                     if (onSaveToDevice != null) {
                         DropdownMenuItem(
                             text = { Text("Save to Local Device", fontSize = 13.sp) },

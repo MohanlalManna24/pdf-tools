@@ -51,7 +51,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -65,6 +67,7 @@ import com.example.data.db.PdfEntity
 import com.example.ui.components.EssentialToolCard
 import com.example.ui.components.FavoriteFileRow
 import com.example.ui.components.RecentFileCard
+import com.example.ui.components.RenamePdfDialog
 import com.example.ui.theme.ChipAmberBg
 import com.example.ui.theme.ChipAmberIcon
 import com.example.ui.theme.ChipBlueBg
@@ -112,6 +115,20 @@ fun HomeScreen(
     val recentFiles by viewModel.recentFiles.collectAsState()
     val favoriteFiles by viewModel.favoriteFiles.collectAsState()
     val allFiles by viewModel.allFiles.collectAsState()
+
+    var pdfToRename by remember { mutableStateOf<PdfEntity?>(null) }
+
+    val pdfForDialog = pdfToRename
+    if (pdfForDialog != null) {
+        RenamePdfDialog(
+            currentTitle = pdfForDialog.title,
+            onDismiss = { pdfToRename = null },
+            onRename = { newName ->
+                viewModel.renamePdf(pdfForDialog, newName)
+                Toast.makeText(context, "Renamed document to $newName", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
 
     val allHomeTools = remember {
         listOf(
@@ -543,6 +560,7 @@ fun HomeScreen(
                                 RecentFileCard(
                                     pdf = file,
                                     onClick = { onOpenPdf(file) },
+                                    onRename = { pdfToRename = file },
                                     onRemove = {
                                         viewModel.deleteFile(file)
                                         Toast.makeText(context, "Removed from recents", Toast.LENGTH_SHORT).show()
@@ -653,6 +671,7 @@ fun HomeScreen(
                         pdf = fav,
                         onClick = { onOpenPdf(fav) },
                         onToggleFavorite = { viewModel.toggleFavorite(fav.id, fav.isFavorite) },
+                        onRename = { pdfToRename = fav },
                         onRemove = {
                             viewModel.deleteFile(fav)
                             Toast.makeText(context, "Removed from recents", Toast.LENGTH_SHORT).show()

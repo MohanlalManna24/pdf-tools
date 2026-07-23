@@ -69,6 +69,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.db.PdfEntity
+import com.example.ui.components.RenamePdfDialog
 import com.example.ui.theme.RedPrimary
 import com.example.ui.theme.WarmBorderLight
 import com.example.util.PdfEngine
@@ -87,6 +88,7 @@ import androidx.compose.material3.DropdownMenuItem
 fun PdfReaderScreen(
     pdf: PdfEntity?,
     onBack: () -> Unit,
+    onRenamePdf: ((PdfEntity, String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -104,8 +106,20 @@ fun PdfReaderScreen(
     var isBookmarked by remember { mutableStateOf(false) }
     var showSearchField by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var scale by remember { mutableFloatStateOf(1f) }
+
+    if (showRenameDialog && pdf != null) {
+        RenamePdfDialog(
+            currentTitle = pdf.title,
+            onDismiss = { showRenameDialog = false },
+            onRename = { newName ->
+                onRenamePdf?.invoke(pdf, newName)
+                Toast.makeText(context, "Renamed document to $newName", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
 
     // Cache rendered bitmaps for pages
     val renderedPages = remember { mutableStateListOf<Bitmap?>() }
@@ -190,6 +204,16 @@ fun PdfReaderScreen(
                             expanded = showMenu,
                             onDismissRequest = { showMenu = false }
                         ) {
+                            if (pdf != null && onRenamePdf != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Rename Document") },
+                                    onClick = {
+                                        showMenu = false
+                                        showRenameDialog = true
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Save to Local Device") },
                                 onClick = {

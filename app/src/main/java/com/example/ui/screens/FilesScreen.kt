@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PictureAsPdf
@@ -62,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.db.PdfEntity
 import com.example.ui.components.PdfThumbnailView
+import com.example.ui.components.RenamePdfDialog
 import com.example.ui.theme.GoldStar
 import com.example.ui.theme.RedPrimary
 import com.example.ui.theme.WarmBorderLight
@@ -83,6 +85,19 @@ fun FilesScreen(
     val searchQuery by viewModel.searchQuery.collectAsState()
 
     var selectedFilterTab by remember { mutableStateOf("All") } // "All", "Scanned", "Favorites"
+    var pdfToRename by remember { mutableStateOf<PdfEntity?>(null) }
+
+    val pdfForDialog = pdfToRename
+    if (pdfForDialog != null) {
+        RenamePdfDialog(
+            currentTitle = pdfForDialog.title,
+            onDismiss = { pdfToRename = null },
+            onRename = { newName ->
+                viewModel.renamePdf(pdfForDialog, newName)
+                Toast.makeText(context, "Renamed document to $newName", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
 
     val displayedFiles = remember(allFiles, favoriteFiles, selectedFilterTab, searchQuery) {
         val q = searchQuery.trim()
@@ -255,6 +270,7 @@ fun FilesScreen(
                             pdf = pdf,
                             onClick = { onOpenPdf(pdf) },
                             onToggleFavorite = { viewModel.toggleFavorite(pdf.id, pdf.isFavorite) },
+                            onRename = { pdfToRename = pdf },
                             onRemove = {
                                 viewModel.deleteFile(pdf)
                                 Toast.makeText(context, "File deleted", Toast.LENGTH_SHORT).show()
@@ -285,6 +301,7 @@ private fun FileItemCard(
     pdf: PdfEntity,
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onRename: () -> Unit,
     onRemove: () -> Unit,
     onSaveToDevice: () -> Unit
 ) {
@@ -366,6 +383,14 @@ private fun FileItemCard(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false }
                 ) {
+                    DropdownMenuItem(
+                        text = { Text("Rename Document", fontSize = 13.sp) },
+                        onClick = {
+                            showMenu = false
+                            onRename()
+                        },
+                        leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                    )
                     DropdownMenuItem(
                         text = { Text("Save to Local Device", fontSize = 13.sp) },
                         onClick = {
