@@ -293,6 +293,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         "Magic Color" -> applyMagicColorFilter(bitmap)
                         "B&W" -> applyBWFilter(bitmap)
                         "Grayscale" -> applyGrayscaleFilter(bitmap)
+                        "Warm Paper" -> applyWarmPaperFilter(bitmap)
+                        "Invert" -> applyInvertFilter(bitmap)
                         else -> bitmap
                     }
                 }
@@ -390,6 +392,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val paint = Paint().apply {
             val cm = ColorMatrix()
             cm.setSaturation(0f)
+            colorFilter = ColorMatrixColorFilter(cm)
+        }
+        canvas.drawBitmap(src, 0f, 0f, paint)
+        return dest
+    }
+
+    private fun applyWarmPaperFilter(src: Bitmap): Bitmap {
+        val dest = Bitmap.createBitmap(src.width, src.height, src.config ?: Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(dest)
+        val paint = Paint().apply {
+            val cm = ColorMatrix()
+            val array = floatArrayOf(
+                1.2f, 0f, 0f, 0f, 20f,
+                0f, 1.15f, 0f, 0f, 15f,
+                0f, 0f, 0.95f, 0f, 5f,
+                0f, 0f, 0f, 1f, 0f
+            )
+            cm.set(array)
+            colorFilter = ColorMatrixColorFilter(cm)
+        }
+        canvas.drawBitmap(src, 0f, 0f, paint)
+        return dest
+    }
+
+    private fun applyInvertFilter(src: Bitmap): Bitmap {
+        val dest = Bitmap.createBitmap(src.width, src.height, src.config ?: Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(dest)
+        val paint = Paint().apply {
+            val cm = ColorMatrix()
+            val array = floatArrayOf(
+                -1f, 0f, 0f, 0f, 255f,
+                0f, -1f, 0f, 0f, 255f,
+                0f, 0f, -1f, 0f, 255f,
+                0f, 0f, 0f, 1f, 0f
+            )
+            cm.set(array)
             colorFilter = ColorMatrixColorFilter(cm)
         }
         canvas.drawBitmap(src, 0f, 0f, paint)
