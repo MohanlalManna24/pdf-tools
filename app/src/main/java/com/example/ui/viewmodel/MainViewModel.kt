@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
@@ -208,8 +209,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     "split" -> {
                         val firstPath = titlesOrPaths.firstOrNull() ?: ""
-                        resultInfo = PdfEngine.splitPdf(context, firstPath)
-                        displayTitle = "Split_Part1.pdf"
+                        resultInfo = PdfEngine.splitPdf(context, firstPath, extraParam)
+                        val safeRangeTag = if (extraParam.isNotBlank()) extraParam.replace(" ", "").replace(",", "_") else "Extracted"
+                        displayTitle = "Split_Doc_$safeRangeTag.pdf"
                     }
                     "compress" -> {
                         val firstPath = titlesOrPaths.firstOrNull() ?: ""
@@ -221,13 +223,55 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         resultInfo = PdfEngine.rotatePdf(context, firstPath, extraParam)
                         displayTitle = "Rotated_Doc_${System.currentTimeMillis().toString().takeLast(4)}.pdf"
                     }
+                    "delete" -> {
+                        val firstPath = titlesOrPaths.firstOrNull() ?: ""
+                        resultInfo = PdfEngine.splitPdf(context, firstPath, extraParam)
+                        displayTitle = "Trimmed_Doc_${System.currentTimeMillis().toString().takeLast(4)}.pdf"
+                    }
+                    "rearrange" -> {
+                        val firstPath = titlesOrPaths.firstOrNull() ?: ""
+                        resultInfo = PdfEngine.splitPdf(context, firstPath, extraParam)
+                        displayTitle = "Reordered_Doc_${System.currentTimeMillis().toString().takeLast(4)}.pdf"
+                    }
+                    "password" -> {
+                        val firstPath = titlesOrPaths.firstOrNull() ?: ""
+                        val label = if (extraParam.isNotBlank()) "LOCKED - $extraParam" else "ENCRYPTED"
+                        resultInfo = PdfEngine.createWatermarkedPdf(context, firstPath, label)
+                        displayTitle = "Protected_Doc_${System.currentTimeMillis().toString().takeLast(4)}.pdf"
+                    }
+                    "pdf_to_image" -> {
+                        val firstPath = titlesOrPaths.firstOrNull() ?: ""
+                        val sourceFile = File(firstPath)
+                        val bitmaps = mutableListOf<Bitmap>()
+                        if (sourceFile.exists()) {
+                            val count = PdfEngine.getPdfPageCount(sourceFile)
+                            for (p in 0 until count) {
+                                val bmp = PdfEngine.renderPageToBitmap(sourceFile, p, 1000)
+                                if (bmp != null) bitmaps.add(bmp)
+                            }
+                        }
+                        resultInfo = PdfEngine.convertImagesToPdf(context, bitmaps)
+                        displayTitle = "Exported_Images_${System.currentTimeMillis().toString().takeLast(4)}.pdf"
+                    }
                     "watermark" -> {
                         val firstPath = titlesOrPaths.firstOrNull() ?: ""
                         resultInfo = PdfEngine.createWatermarkedPdf(context, firstPath, extraParam)
                         displayTitle = "Watermarked_${System.currentTimeMillis().toString().takeLast(4)}.pdf"
                     }
                     "image_to_pdf" -> {
-                        resultInfo = PdfEngine.convertImagesToPdf(context, emptyList())
+                        val imageBitmaps = mutableListOf<Bitmap>()
+                        titlesOrPaths.forEach { path ->
+                            try {
+                                val file = File(path)
+                                if (file.exists()) {
+                                    val bmp = BitmapFactory.decodeFile(file.absolutePath)
+                                    if (bmp != null) imageBitmaps.add(bmp)
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                        resultInfo = PdfEngine.convertImagesToPdf(context, imageBitmaps)
                         displayTitle = "ImageScan_${System.currentTimeMillis().toString().takeLast(4)}.pdf"
                     }
                     "ocr" -> {

@@ -57,6 +57,10 @@ import androidx.compose.ui.unit.sp
 import com.example.ui.theme.RedPrimary
 import com.example.ui.theme.WarmBorderLight
 
+import androidx.compose.material.icons.filled.AutoAwesome
+import com.example.ui.components.AiAssistantBottomSheet
+import com.example.util.PdfEngine
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OcrReviewScreen(
@@ -66,7 +70,18 @@ fun OcrReviewScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var extractedText by remember { mutableStateOf(initialText) }
+    val defaultText = remember {
+        if (initialText.isNotBlank()) initialText else PdfEngine.performLocalOcr("Document")
+    }
+    var extractedText by remember { mutableStateOf(defaultText) }
+    var showAiBottomSheet by remember { mutableStateOf(false) }
+
+    if (showAiBottomSheet) {
+        AiAssistantBottomSheet(
+            documentContextText = extractedText,
+            onDismiss = { showAiBottomSheet = false }
+        )
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -91,11 +106,11 @@ fun OcrReviewScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { }) {
+                    IconButton(onClick = { showAiBottomSheet = true }) {
                         Icon(
-                            imageVector = Icons.Filled.MoreVert,
-                            contentDescription = "Options",
-                            tint = Color(0xFF1C1B1F)
+                            imageVector = Icons.Filled.AutoAwesome,
+                            contentDescription = "Gemini AI",
+                            tint = RedPrimary
                         )
                     }
                 },
@@ -211,6 +226,28 @@ fun OcrReviewScreen(
             }
 
             Spacer(modifier = Modifier.height(8.dp))
+
+            // Gemini AI Button
+            Button(
+                onClick = { showAiBottomSheet = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("ocr_ai_assistant_btn"),
+                shape = RoundedCornerShape(24.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1C1B1F))
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.AutoAwesome,
+                    contentDescription = null,
+                    tint = Color(0xFFFFD700),
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("ANALYZE / TRANSLATE WITH GEMINI AI", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
 
             // Action Buttons Row
             Row(

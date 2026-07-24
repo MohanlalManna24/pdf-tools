@@ -83,6 +83,9 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 
+import androidx.compose.material.icons.filled.AutoAwesome
+import com.example.ui.components.AiAssistantBottomSheet
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PdfReaderScreen(
@@ -107,8 +110,16 @@ fun PdfReaderScreen(
     var showSearchField by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
+    var showAiBottomSheet by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var scale by remember { mutableFloatStateOf(1f) }
+
+    if (showAiBottomSheet) {
+        AiAssistantBottomSheet(
+            documentContextText = pdf?.extractedText ?: "Document title: $documentTitle, Page count: $totalPages",
+            onDismiss = { showAiBottomSheet = false }
+        )
+    }
 
     if (showRenameDialog && pdf != null) {
         RenamePdfDialog(
@@ -173,6 +184,9 @@ fun PdfReaderScreen(
                         }
                     },
                     actions = {
+                        IconButton(onClick = { showAiBottomSheet = true }) {
+                            Icon(imageVector = Icons.Filled.AutoAwesome, contentDescription = "Gemini AI", tint = RedPrimary)
+                        }
                         IconButton(onClick = {
                             val targetFile = pdf?.path?.let { File(it) }
                             if (targetFile != null && targetFile.exists()) {

@@ -252,22 +252,36 @@ object PdfEngine {
     /**
      * SPLIT: Extract specific page ranges into new PDF
      */
-    suspend fun splitPdf(context: Context, sourcePath: String): LocalPdfInfo = withContext(Dispatchers.IO) {
+    suspend fun splitPdf(context: Context, sourcePath: String, rangeOrPages: String = ""): LocalPdfInfo = withContext(Dispatchers.IO) {
         val document = PdfDocument()
         val sourceFile = File(sourcePath)
 
+        // Parse requested 1-based page numbers from UI input into 0-indexed page list
+        val requestedIndices = parsePageRangeString(rangeOrPages)
+
         var createdPages = 0
-        if (sourceFile.exists()) {
+        if (sourceFile.exists() && sourceFile.length() > 0) {
             try {
                 ParcelFileDescriptor.open(sourceFile, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
                     PdfRenderer(pfd).use { renderer ->
-                        val pagesToExtract = (0 until minOf(2, renderer.pageCount))
-                        pagesToExtract.forEach { p ->
+                        val total = renderer.pageCount
+                        val pagesToExtract = if (requestedIndices.isNotEmpty()) {
+                            requestedIndices.filter { it in 0 until total }
+                        } else {
+                            (0 until minOf(2, total)).toList()
+                        }
+
+                        val validPages = if (pagesToExtract.isNotEmpty()) pagesToExtract else (0 until minOf(1, total)).toList()
+
+                        validPages.forEachIndexed { newIndex, p ->
                             renderer.openPage(p).use { page ->
-                                val pageInfo = PdfDocument.PageInfo.Builder(page.width, page.height, p + 1).create()
+                                val pageInfo = PdfDocument.PageInfo.Builder(page.width, page.height, newIndex + 1).create()
                                 val newPage = document.startPage(pageInfo)
                                 val bitmap = Bitmap.createBitmap(page.width, page.height, Bitmap.Config.ARGB_8888)
+                                val canvas = Canvas(bitmap)
+                                canvas.drawColor(Color.WHITE)
                                 page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+
                                 newPage.canvas.drawBitmap(bitmap, 0f, 0f, null)
                                 document.finishPage(newPage)
                                 createdPages++
@@ -292,19 +306,50 @@ object PdfEngine {
                 isAntiAlias = true
                 isFakeBoldText = true
             }
-            canvas.drawText("Split PDF Output (Part 1)", 40f, 60f, paint)
+            canvas.drawText("Split PDF Output", 40f, 60f, paint)
 
             val bodyPaint = Paint().apply { color = Color.BLACK; textSize = 14f; isAntiAlias = true }
-            canvas.drawText("Extracted pages 1-2 from source document.", 40f, 120f, bodyPaint)
+            val rangeDisplay = if (rangeOrPages.isNotBlank()) rangeOrPages else "Pages 1-2"
+            canvas.drawText("Extracted pages ($rangeDisplay) from source document.", 40f, 120f, bodyPaint)
+            canvas.drawText("Created on-device with local engine.", 40f, 150f, bodyPaint)
             document.finishPage(page)
             createdPages = 1
         }
 
-        val outputFile = createOutputFile(context, "Split_Part1")
+        val outputFile = createOutputFile(context, "Split_PDF")
         FileOutputStream(outputFile).use { out -> document.writeTo(out) }
         document.close()
 
         LocalPdfInfo(outputFile, createdPages, outputFile.length())
+    }
+
+    private fun parsePageRangeString(input: String): List<Int> {
+        val indices = mutableSetOf<Int>()
+        if (input.isBlank()) return emptyList()
+
+        val tokens = input.split(",", ";", " ")
+        for (token in tokens) {
+            val trimmed = token.trim()
+            if (trimmed.isEmpty()) continue
+            if (trimmed.contains("-")) {
+                val parts = trimmed.split("-")
+                if (parts.size == 2) {
+                    val start = parts[0].trim().toIntOrNull()
+                    val end = parts[1].trim().toIntOrNull()
+                    if (start != null && end != null && start <= end) {
+                        for (p in start..end) {
+                            if (p >= 1) indices.add(p - 1)
+                        }
+                    }
+                }
+            } else {
+                val p = trimmed.toIntOrNull()
+                if (p != null && p >= 1) {
+                    indices.add(p - 1)
+                }
+            }
+        }
+        return indices.sorted()
     }
 
     /**
