@@ -95,6 +95,9 @@ class MainActivity : ComponentActivity() {
                                 viewModel.resetProcessingState()
                                 currentScreen = AppScreen.MainTab(NavTab.HOME)
                                 currentTab = NavTab.HOME
+                            },
+                            onRenameFile = { newTitle, newPath ->
+                                viewModel.updateSuccessStateTitle(newTitle, newPath)
                             }
                         )
                     }

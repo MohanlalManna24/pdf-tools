@@ -392,6 +392,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _processingState.value = ProcessingUiState.Idle
     }
 
+    fun updateSuccessStateTitle(newTitle: String, newPath: String) {
+        val currentState = _processingState.value
+        if (currentState is ProcessingUiState.Success) {
+            val updatedEntity = currentState.createdEntity?.copy(title = newTitle, path = newPath)
+            if (updatedEntity != null) {
+                viewModelScope.launch(Dispatchers.IO) {
+                    repository.insertPdf(updatedEntity)
+                }
+                _activePdf.value = updatedEntity
+            }
+            _processingState.value = currentState.copy(
+                title = newTitle,
+                path = newPath,
+                createdEntity = updatedEntity
+            )
+        }
+    }
+
     fun saveScannedPdf(
         bitmaps: List<Bitmap>,
         filterName: String = "Magic Color",

@@ -24,22 +24,29 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.RotateRight
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -52,6 +59,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -68,6 +77,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -106,6 +116,7 @@ fun PageManagerScreen(
 
     var currentPath by remember { mutableStateOf(initialFilePath) }
     var currentTitle by remember { mutableStateOf(documentTitle ?: "Document.pdf") }
+    var searchQuery by remember { mutableStateOf("") }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -119,15 +130,39 @@ fun PageManagerScreen(
         }
     }
 
+    // Modern Redesigned Document Selection / Fallback Screen when no path is selected
     if (currentPath.isNullOrEmpty() || !File(currentPath!!).exists()) {
-        // File selection fallback UI
+        val filteredPdfs = remember(allPdfs, searchQuery) {
+            if (searchQuery.isBlank()) allPdfs
+            else allPdfs.filter { it.title.contains(searchQuery, ignoreCase = true) }
+        }
+
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text(if (toolMode == "delete") "Delete Pages" else "Rearrange Pages", fontWeight = FontWeight.Bold) },
+                    title = {
+                        Text(
+                            text = if (toolMode == "delete") "Delete Pages" else "Rearrange Pages",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp
+                        )
+                    },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        Button(
+                            onClick = { filePickerLauncher.launch(arrayOf("application/pdf")) },
+                            shape = RoundedCornerShape(20.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = RedPrimary),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                            modifier = Modifier.padding(end = 8.dp)
+                        ) {
+                            Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Open File", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFFFAF8F5))
@@ -135,37 +170,258 @@ fun PageManagerScreen(
             },
             containerColor = Color(0xFFFAF8F5)
         ) { innerPadding ->
-            Column(
+            LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                    .padding(horizontal = 16.dp),
+                contentPadding = PaddingValues(bottom = 32.dp, top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Filled.PictureAsPdf,
-                    contentDescription = null,
-                    tint = RedPrimary,
-                    modifier = Modifier.size(64.dp)
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text("Select Document for Page Management", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    "Choose a PDF file to view, delete, or reorder its pages.",
-                    fontSize = 13.sp,
-                    color = Color.Gray
-                )
-                Spacer(modifier = Modifier.height(24.dp))
-                Button(
-                    onClick = { filePickerLauncher.launch(arrayOf("application/pdf")) },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = RedPrimary)
-                ) {
-                    Icon(Icons.Filled.FolderOpen, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Browse Storage for PDF")
+                // HERO BANNER CARD
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    Brush.horizontalGradient(
+                                        colors = listOf(Color(0xFFD32F2F), Color(0xFFE53935))
+                                    )
+                                )
+                                .padding(20.dp)
+                        ) {
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.White.copy(alpha = 0.2f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.PictureAsPdf,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text(
+                                            text = if (toolMode == "delete") "Select PDF to Delete Pages" else "Select PDF to Rearrange",
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White,
+                                            fontSize = 17.sp
+                                        )
+                                        Text(
+                                            text = "Pick a document from your library or storage below",
+                                            color = Color.White.copy(alpha = 0.85f),
+                                            fontSize = 12.sp
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Button(
+                                        onClick = { filePickerLauncher.launch(arrayOf("application/pdf")) },
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color.White,
+                                            contentColor = RedPrimary
+                                        )
+                                    ) {
+                                        Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Browse Storage", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // RECENT DOCUMENTS SECTION
+                if (allPdfs.isNotEmpty()) {
+                    item {
+                        Column {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Select From Document Library",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF1C1B1F)
+                                )
+                                Text(
+                                    text = "${filteredPdfs.size} Files",
+                                    fontSize = 12.sp,
+                                    color = Color.Gray,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Search Field
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                placeholder = { Text("Search document by name...", fontSize = 13.sp, color = Color.Gray) },
+                                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = Color.Gray) },
+                                trailingIcon = {
+                                    if (searchQuery.isNotEmpty()) {
+                                        IconButton(onClick = { searchQuery = "" }) {
+                                            Icon(Icons.Filled.Close, contentDescription = "Clear", tint = Color.Gray)
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = Color.White,
+                                    unfocusedContainerColor = Color.White,
+                                    focusedBorderColor = RedPrimary,
+                                    unfocusedBorderColor = WarmBorderLight
+                                )
+                            )
+                        }
+                    }
+
+                    if (filteredPdfs.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(32.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("No matching documents found", color = Color.Gray, fontSize = 13.sp)
+                            }
+                        }
+                    } else {
+                        items(filteredPdfs) { pdf ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .clickable {
+                                        currentPath = pdf.path
+                                        currentTitle = pdf.title
+                                    },
+                                colors = CardDefaults.cardColors(containerColor = Color.White),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                                border = BorderStroke(1.dp, WarmBorderLight)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(RedPrimary.copy(alpha = 0.1f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Description,
+                                            contentDescription = null,
+                                            tint = RedPrimary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(12.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = pdf.title,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = Color(0xFF1C1B1F),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "${pdf.pageCount} Pages • ${pdf.sizeFormatted}",
+                                            fontSize = 11.sp,
+                                            color = Color.Gray
+                                        )
+                                    }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(CircleShape)
+                                            .background(RedPrimary),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                            contentDescription = "Select",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // FEATURES LIST CARD WHEN NO LIBRARY PDFS EXIST
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color.White),
+                            border = BorderStroke(1.dp, WarmBorderLight)
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    text = "Features of Page Manager:",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = Color(0xFF1C1B1F)
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("✓ ", color = RedPrimary, fontWeight = FontWeight.Bold)
+                                    Text("Delete single or multiple unwanted pages cleanly", fontSize = 12.sp, color = Color.DarkGray)
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("✓ ", color = RedPrimary, fontWeight = FontWeight.Bold)
+                                    Text("Reorder sequence with simple direction arrows", fontSize = 12.sp, color = Color.DarkGray)
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("✓ ", color = RedPrimary, fontWeight = FontWeight.Bold)
+                                    Text("Duplicate or rotate pages in one click", fontSize = 12.sp, color = Color.DarkGray)
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -209,14 +465,21 @@ fun PageManagerScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = currentTitle,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF1C1B1F),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Column {
+                        Text(
+                            text = currentTitle,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1C1B1F),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "${pagesList.size} Pages total",
+                            fontSize = 11.sp,
+                            color = Color.Gray
+                        )
+                    }
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -228,6 +491,15 @@ fun PageManagerScreen(
                     }
                 },
                 actions = {
+                    // Switch document button
+                    IconButton(onClick = { currentPath = null }) {
+                        Icon(
+                            imageVector = Icons.Filled.FolderOpen,
+                            contentDescription = "Switch File",
+                            tint = Color.DarkGray
+                        )
+                    }
+
                     // Save Button (Red Pill)
                     Button(
                         onClick = {
@@ -242,7 +514,7 @@ fun PageManagerScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = RedPrimary),
                         shape = RoundedCornerShape(20.dp),
                         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 6.dp),
-                        modifier = Modifier.padding(end = 8.dp)
+                        modifier = Modifier.padding(end = 4.dp)
                     ) {
                         Text(
                             text = "Save",
@@ -292,10 +564,10 @@ fun PageManagerScreen(
                         )
                         HorizontalDivider()
                         DropdownMenuItem(
-                            text = { Text("Change Document File") },
+                            text = { Text("Switch Document") },
                             onClick = {
                                 showMoreMenu = false
-                                filePickerLauncher.launch(arrayOf("application/pdf"))
+                                currentPath = null
                             },
                             leadingIcon = { Icon(Icons.Filled.FolderOpen, contentDescription = null, tint = RedPrimary) }
                         )
@@ -305,7 +577,7 @@ fun PageManagerScreen(
             )
         },
         bottomBar = {
-            // Floating Bottom Action Bar matching user mockup!
+            // Floating Bottom Action Bar
             if (pagesList.isNotEmpty()) {
                 Surface(
                     modifier = Modifier
@@ -625,3 +897,4 @@ fun PageManagerScreen(
         }
     }
 }
+

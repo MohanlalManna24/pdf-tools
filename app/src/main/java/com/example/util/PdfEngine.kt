@@ -337,20 +337,23 @@ object PdfEngine {
                         }
                     } else {
                         // Combine all selected pages into 1 single PDF file
-                        val allPages = groups.flatten().filter { it in 0 until totalPages }.distinct()
+                        val allPages = groups.flatten().filter { it in 0 until totalPages }
                         val validPages = if (allPages.isNotEmpty()) allPages else (0 until minOf(1, totalPages)).toList()
 
                         val document = PdfDocument()
                         validPages.forEachIndexed { newIndex, p ->
                             renderer.openPage(p).use { page ->
-                                val pageInfo = PdfDocument.PageInfo.Builder(page.width, page.height, newIndex + 1).create()
-                                val newPage = document.startPage(pageInfo)
-                                val bitmap = Bitmap.createBitmap(page.width, page.height, Bitmap.Config.ARGB_8888)
+                                val renderWidth = (page.width * 2f).toInt()
+                                val renderHeight = (page.height * 2f).toInt()
+                                val bitmap = Bitmap.createBitmap(renderWidth, renderHeight, Bitmap.Config.ARGB_8888)
                                 val canvas = Canvas(bitmap)
                                 canvas.drawColor(Color.WHITE)
                                 page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
 
-                                newPage.canvas.drawBitmap(bitmap, 0f, 0f, null)
+                                val pageInfo = PdfDocument.PageInfo.Builder(page.width, page.height, newIndex + 1).create()
+                                val newPage = document.startPage(pageInfo)
+                                val destRect = android.graphics.Rect(0, 0, page.width, page.height)
+                                newPage.canvas.drawBitmap(bitmap, null, destRect, null)
                                 document.finishPage(newPage)
                             }
                         }
