@@ -66,8 +66,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.db.PdfEntity
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.ReadMore
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.outlined.StarOutline
+import com.example.ui.components.DeleteConfirmDialog
+import com.example.ui.components.PdfDetailsDialog
 import com.example.ui.components.PdfThumbnailView
 import com.example.ui.components.RenamePdfDialog
+import com.example.ui.components.printPdfFile
+import com.example.ui.components.sharePdfFile
 import com.example.ui.theme.GoldStar
 import com.example.ui.theme.RedPrimary
 import com.example.ui.theme.WarmBorderLight
@@ -346,7 +355,26 @@ private fun FileItemCard(
     onRemove: () -> Unit,
     onSaveToDevice: () -> Unit
 ) {
+    val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
+    var showDetailsDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    if (showDetailsDialog) {
+        PdfDetailsDialog(
+            pdf = pdf,
+            documentTitle = pdf.title,
+            onDismiss = { showDetailsDialog = false }
+        )
+    }
+
+    if (showDeleteDialog) {
+        DeleteConfirmDialog(
+            pdfTitle = pdf.title,
+            onDismiss = { showDeleteDialog = false },
+            onConfirmDelete = { onRemove() }
+        )
+    }
 
     Card(
         modifier = Modifier
@@ -391,7 +419,7 @@ private fun FileItemCard(
 
             IconButton(onClick = onToggleFavorite) {
                 Icon(
-                    imageVector = if (pdf.isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
+                    imageVector = if (pdf.isFavorite) Icons.Filled.Star else Icons.Outlined.StarOutline,
                     contentDescription = "Favorite",
                     tint = if (pdf.isFavorite) GoldStar else Color(0xFF605D62)
                 )
@@ -410,6 +438,53 @@ private fun FileItemCard(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false }
                 ) {
+                    DropdownMenuItem(
+                        text = { Text("Open PDF", fontSize = 13.sp) },
+                        onClick = {
+                            showMenu = false
+                            onClick()
+                        },
+                        leadingIcon = { Icon(Icons.Filled.ReadMore, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Document Details", fontSize = 13.sp) },
+                        onClick = {
+                            showMenu = false
+                            showDetailsDialog = true
+                        },
+                        leadingIcon = { Icon(Icons.Filled.Info, contentDescription = null, modifier = Modifier.size(18.dp), tint = RedPrimary) }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Share PDF", fontSize = 13.sp) },
+                        onClick = {
+                            showMenu = false
+                            sharePdfFile(context, pdf)
+                        },
+                        leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Print Document", fontSize = 13.sp) },
+                        onClick = {
+                            showMenu = false
+                            printPdfFile(context, pdf, pdf.title)
+                        },
+                        leadingIcon = { Icon(Icons.Filled.Print, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (pdf.isFavorite) "Remove Favorite" else "Add Favorite", fontSize = 13.sp) },
+                        onClick = {
+                            showMenu = false
+                            onToggleFavorite()
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (pdf.isFavorite) Icons.Filled.Star else Icons.Outlined.StarOutline,
+                                contentDescription = null,
+                                tint = GoldStar,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    )
                     DropdownMenuItem(
                         text = { Text("Rename Document", fontSize = 13.sp) },
                         onClick = {
@@ -430,7 +505,7 @@ private fun FileItemCard(
                         text = { Text("Delete Document", fontSize = 13.sp, color = RedPrimary) },
                         onClick = {
                             showMenu = false
-                            onRemove()
+                            showDeleteDialog = true
                         },
                         leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = RedPrimary, modifier = Modifier.size(18.dp)) }
                     )

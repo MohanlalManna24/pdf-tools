@@ -93,6 +93,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun toggleFavorite(pdf: PdfEntity) {
+        viewModelScope.launch {
+            repository.toggleFavorite(pdf.id, pdf.isFavorite)
+        }
+    }
+
     fun renamePdf(pdf: PdfEntity, newNameRaw: String) {
         viewModelScope.launch(Dispatchers.IO) {
             val trimmed = newNameRaw.trim()

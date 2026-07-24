@@ -46,6 +46,22 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import android.content.Context
+import android.content.Intent
+import android.print.PrintAttributes
+import android.print.PrintManager
+import android.widget.Toast
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.ReadMore
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.FileProvider
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -316,6 +332,245 @@ fun RenamePdfDialog(
     )
 }
 
+@Composable
+fun DeleteConfirmDialog(
+    pdfTitle: String,
+    onDismiss: () -> Unit,
+    onConfirmDelete: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Filled.Delete,
+                    contentDescription = null,
+                    tint = RedPrimary
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Delete Document?",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = Color(0xFF1C1B1F)
+                )
+            }
+        },
+        text = {
+            Text(
+                text = "Are you sure you want to permanently delete \"$pdfTitle\"? This action cannot be undone.",
+                fontSize = 13.sp,
+                color = Color(0xFF605D62)
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onConfirmDelete()
+                    onDismiss()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = RedPrimary),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text("Delete", fontWeight = FontWeight.Bold, color = Color.White)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = Color(0xFF757575))
+            }
+        },
+        containerColor = Color.White,
+        shape = RoundedCornerShape(20.dp)
+    )
+}
+
+@Composable
+fun PdfDetailsDialog(
+    pdf: PdfEntity?,
+    documentTitle: String = pdf?.title ?: "Document",
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val file = pdf?.path?.let { File(it) }
+    val lastModifiedDate = if (file != null && file.exists()) {
+        SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(file.lastModified()))
+    } else if (pdf?.timestamp != null) {
+        SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(pdf.timestamp))
+    } else {
+        "Recent Document"
+    }
+
+    val exactPath = file?.absolutePath ?: pdf?.path ?: "Internal Device Storage"
+    val sizeText = pdf?.sizeFormatted ?: if (file != null && file.exists()) "${file.length() / 1024} KB" else "0 KB"
+    val exactBytes = if (file != null && file.exists()) "${file.length()} bytes" else "${pdf?.sizeBytes ?: 0} bytes"
+    val pagesText = "${pdf?.pageCount ?: 1} pages"
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Filled.Info,
+                    contentDescription = null,
+                    tint = RedPrimary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text("PDF Document Details", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                DetailRow(label = "Title", value = documentTitle)
+                HorizontalDivider(color = WarmBorderLight)
+                DetailRow(label = "File Size", value = "$sizeText ($exactBytes)")
+                DetailRow(label = "Page Count", value = pagesText)
+                DetailRow(label = "Modified Date", value = lastModifiedDate)
+                DetailRow(label = "Category", value = pdf?.category ?: "Local PDF")
+                HorizontalDivider(color = WarmBorderLight)
+                DetailRow(
+                    label = "Storage Path",
+                    value = exactPath,
+                    isCopyable = true,
+                    onCopy = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        val clip = android.content.ClipData.newPlainText("PDF Path", exactPath)
+                        clipboard.setPrimaryClip(clip)
+                        Toast.makeText(context, "Path copied to clipboard", Toast.LENGTH_SHORT).show()
+                    }
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close", color = RedPrimary, fontWeight = FontWeight.Bold)
+            }
+        },
+        shape = RoundedCornerShape(20.dp),
+        containerColor = Color.White
+    )
+}
+
+@Composable
+private fun DetailRow(
+    label: String,
+    value: String,
+    isCopyable: Boolean = false,
+    onCopy: (() -> Unit)? = null
+) {
+    Column {
+        Text(text = label, fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.SemiBold)
+        Spacer(modifier = Modifier.height(2.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = value,
+                fontSize = 13.sp,
+                color = Color(0xFF1C1B1F),
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f)
+            )
+            if (isCopyable && onCopy != null) {
+                IconButton(onClick = onCopy, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        imageVector = Icons.Filled.ContentCopy,
+                        contentDescription = "Copy Path",
+                        tint = RedPrimary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+fun sharePdfFile(context: Context, pdf: PdfEntity?) {
+    val file = pdf?.path?.let { File(it) }
+    if (file != null && file.exists()) {
+        try {
+            val uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.provider",
+                file
+            )
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/pdf"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(shareIntent, "Share PDF Document"))
+        } catch (e: Exception) {
+            Toast.makeText(context, "Could not share file: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    } else {
+        Toast.makeText(context, "File path unavailable for sharing", Toast.LENGTH_SHORT).show()
+    }
+}
+
+fun printPdfFile(context: Context, pdf: PdfEntity?, documentTitle: String) {
+    val file = pdf?.path?.let { File(it) }
+    if (file != null && file.exists()) {
+        try {
+            val printManager = context.getSystemService(Context.PRINT_SERVICE) as? PrintManager
+            if (printManager != null) {
+                val printAdapter = object : android.print.PrintDocumentAdapter() {
+                    override fun onLayout(
+                        oldAttributes: PrintAttributes?,
+                        newAttributes: PrintAttributes?,
+                        cancellationSignal: android.os.CancellationSignal?,
+                        callback: LayoutResultCallback?,
+                        extras: android.os.Bundle?
+                    ) {
+                        if (cancellationSignal?.isCanceled == true) {
+                            callback?.onLayoutCancelled()
+                            return
+                        }
+                        val info = android.print.PrintDocumentInfo.Builder(documentTitle)
+                            .setContentType(android.print.PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
+                            .setPageCount(pdf.pageCount)
+                            .build()
+                        callback?.onLayoutFinished(info, newAttributes != oldAttributes)
+                    }
+
+                    override fun onWrite(
+                        pages: Array<out android.print.PageRange>?,
+                        destination: android.os.ParcelFileDescriptor?,
+                        cancellationSignal: android.os.CancellationSignal?,
+                        callback: WriteResultCallback?
+                    ) {
+                        try {
+                            file.inputStream().use { input ->
+                                java.io.FileOutputStream(destination?.fileDescriptor).use { output ->
+                                    input.copyTo(output)
+                                }
+                            }
+                            callback?.onWriteFinished(arrayOf(android.print.PageRange.ALL_PAGES))
+                        } catch (e: Exception) {
+                            callback?.onWriteFailed(e.message)
+                        }
+                    }
+                }
+                printManager.print(documentTitle, printAdapter, PrintAttributes.Builder().build())
+            } else {
+                Toast.makeText(context, "Print service unavailable", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Toast.makeText(context, "Failed to print: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    } else {
+        Toast.makeText(context, "File unavailable for printing", Toast.LENGTH_SHORT).show()
+    }
+}
+
 /**
  * Recent file card for horizontal scrolling carousel on Home screen.
  * Displays actual page preview thumbnail.
@@ -327,9 +582,29 @@ fun RecentFileCard(
     onRename: (() -> Unit)? = null,
     onRemove: (() -> Unit)? = null,
     onSaveToDevice: (() -> Unit)? = null,
+    onToggleFavorite: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
+    var showDetailsDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    if (showDetailsDialog) {
+        PdfDetailsDialog(
+            pdf = pdf,
+            documentTitle = pdf.title,
+            onDismiss = { showDetailsDialog = false }
+        )
+    }
+
+    if (showDeleteDialog) {
+        DeleteConfirmDialog(
+            pdfTitle = pdf.title,
+            onDismiss = { showDeleteDialog = false },
+            onConfirmDelete = { onRemove?.invoke() }
+        )
+    }
 
     Card(
         modifier = modifier
@@ -385,6 +660,55 @@ fun RecentFileCard(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false }
                     ) {
+                        DropdownMenuItem(
+                            text = { Text("Open PDF", fontSize = 13.sp) },
+                            onClick = {
+                                showMenu = false
+                                onClick()
+                            },
+                            leadingIcon = { Icon(Icons.Filled.ReadMore, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Document Details", fontSize = 13.sp) },
+                            onClick = {
+                                showMenu = false
+                                showDetailsDialog = true
+                            },
+                            leadingIcon = { Icon(Icons.Filled.Info, contentDescription = null, modifier = Modifier.size(18.dp), tint = RedPrimary) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Share PDF", fontSize = 13.sp) },
+                            onClick = {
+                                showMenu = false
+                                sharePdfFile(context, pdf)
+                            },
+                            leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Print Document", fontSize = 13.sp) },
+                            onClick = {
+                                showMenu = false
+                                printPdfFile(context, pdf, pdf.title)
+                            },
+                            leadingIcon = { Icon(Icons.Filled.Print, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                        )
+                        if (onToggleFavorite != null) {
+                            DropdownMenuItem(
+                                text = { Text(if (pdf.isFavorite) "Remove Favorite" else "Add Favorite", fontSize = 13.sp) },
+                                onClick = {
+                                    showMenu = false
+                                    onToggleFavorite()
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = if (pdf.isFavorite) Icons.Filled.Star else Icons.Outlined.StarOutline,
+                                        contentDescription = null,
+                                        tint = GoldStar,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            )
+                        }
                         if (onRename != null) {
                             DropdownMenuItem(
                                 text = { Text("Rename File", fontSize = 13.sp) },
@@ -407,10 +731,10 @@ fun RecentFileCard(
                         }
                         if (onRemove != null) {
                             DropdownMenuItem(
-                                text = { Text("Remove from Recents", fontSize = 13.sp, color = RedPrimary) },
+                                text = { Text("Delete Document", fontSize = 13.sp, color = RedPrimary) },
                                 onClick = {
                                     showMenu = false
-                                    onRemove()
+                                    showDeleteDialog = true
                                 },
                                 leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = RedPrimary, modifier = Modifier.size(18.dp)) }
                             )
@@ -513,7 +837,26 @@ fun FavoriteFileRow(
     onSaveToDevice: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
+    var showDetailsDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    if (showDetailsDialog) {
+        PdfDetailsDialog(
+            pdf = pdf,
+            documentTitle = pdf.title,
+            onDismiss = { showDetailsDialog = false }
+        )
+    }
+
+    if (showDeleteDialog) {
+        DeleteConfirmDialog(
+            pdfTitle = pdf.title,
+            onDismiss = { showDeleteDialog = false },
+            onConfirmDelete = { onRemove?.invoke() }
+        )
+    }
 
     Card(
         modifier = modifier
@@ -575,6 +918,53 @@ fun FavoriteFileRow(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false }
                 ) {
+                    DropdownMenuItem(
+                        text = { Text("Open PDF", fontSize = 13.sp) },
+                        onClick = {
+                            showMenu = false
+                            onClick()
+                        },
+                        leadingIcon = { Icon(Icons.Filled.ReadMore, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Document Details", fontSize = 13.sp) },
+                        onClick = {
+                            showMenu = false
+                            showDetailsDialog = true
+                        },
+                        leadingIcon = { Icon(Icons.Filled.Info, contentDescription = null, modifier = Modifier.size(18.dp), tint = RedPrimary) }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Share PDF", fontSize = 13.sp) },
+                        onClick = {
+                            showMenu = false
+                            sharePdfFile(context, pdf)
+                        },
+                        leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Print Document", fontSize = 13.sp) },
+                        onClick = {
+                            showMenu = false
+                            printPdfFile(context, pdf, pdf.title)
+                        },
+                        leadingIcon = { Icon(Icons.Filled.Print, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (pdf.isFavorite) "Remove Favorite" else "Add Favorite", fontSize = 13.sp) },
+                        onClick = {
+                            showMenu = false
+                            onToggleFavorite()
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (pdf.isFavorite) Icons.Filled.Star else Icons.Outlined.StarOutline,
+                                contentDescription = null,
+                                tint = GoldStar,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    )
                     if (onRename != null) {
                         DropdownMenuItem(
                             text = { Text("Rename File", fontSize = 13.sp) },
@@ -597,10 +987,10 @@ fun FavoriteFileRow(
                     }
                     if (onRemove != null) {
                         DropdownMenuItem(
-                            text = { Text("Remove from Recents", fontSize = 13.sp, color = RedPrimary) },
+                            text = { Text("Delete Document", fontSize = 13.sp, color = RedPrimary) },
                             onClick = {
                                 showMenu = false
-                                onRemove()
+                                showDeleteDialog = true
                             },
                             leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = RedPrimary, modifier = Modifier.size(18.dp)) }
                         )

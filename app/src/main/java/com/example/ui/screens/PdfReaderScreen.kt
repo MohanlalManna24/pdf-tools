@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
@@ -53,6 +54,8 @@ import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.AlertDialog
@@ -96,16 +99,18 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.example.data.db.PdfEntity
 import com.example.ui.components.AiAssistantBottomSheet
+import com.example.ui.components.DeleteConfirmDialog
+import com.example.ui.components.PdfDetailsDialog
 import com.example.ui.components.RenamePdfDialog
+import com.example.ui.components.printPdfFile
+import com.example.ui.components.sharePdfFile
+import com.example.ui.theme.GoldStar
 import com.example.ui.theme.RedPrimary
 import com.example.ui.theme.WarmBorderLight
 import com.example.util.PdfEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -114,6 +119,8 @@ fun PdfReaderScreen(
     onBack: () -> Unit,
     onOpenLocalPdf: ((Uri) -> Unit)? = null,
     onRenamePdf: ((PdfEntity, String) -> Unit)? = null,
+    onDeletePdf: ((PdfEntity) -> Unit)? = null,
+    onToggleFavorite: ((PdfEntity) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -142,6 +149,7 @@ fun PdfReaderScreen(
     var showMenu by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var showDetailsDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
     var showJumpDialog by remember { mutableStateOf(false) }
     var showAiBottomSheet by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -180,6 +188,18 @@ fun PdfReaderScreen(
             pdf = pdf,
             documentTitle = documentTitle,
             onDismiss = { showDetailsDialog = false }
+        )
+    }
+
+    if (showDeleteDialog && pdf != null) {
+        DeleteConfirmDialog(
+            pdfTitle = pdf.title,
+            onDismiss = { showDeleteDialog = false },
+            onConfirmDelete = {
+                onDeletePdf?.invoke(pdf)
+                Toast.makeText(context, "Document deleted", Toast.LENGTH_SHORT).show()
+                onBack()
+            }
         )
     }
 
@@ -315,6 +335,24 @@ fun PdfReaderScreen(
                                 leadingIcon = { Icon(Icons.Filled.Print, contentDescription = null) }
                             )
 
+                            if (pdf != null && onToggleFavorite != null) {
+                                DropdownMenuItem(
+                                    text = { Text(if (pdf.isFavorite) "Remove from Favorites" else "Add to Favorites") },
+                                    onClick = {
+                                        showMenu = false
+                                        onToggleFavorite(pdf)
+                                        Toast.makeText(context, if (pdf.isFavorite) "Removed from favorites" else "Added to favorites", Toast.LENGTH_SHORT).show()
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = if (pdf.isFavorite) Icons.Filled.Star else Icons.Outlined.StarOutline,
+                                            contentDescription = null,
+                                            tint = GoldStar
+                                        )
+                                    }
+                                )
+                            }
+
                             if (pdf != null && onRenamePdf != null) {
                                 DropdownMenuItem(
                                     text = { Text("Rename Document") },
@@ -344,6 +382,17 @@ fun PdfReaderScreen(
                                 },
                                 leadingIcon = { Icon(Icons.Filled.Download, contentDescription = null) }
                             )
+
+                            if (pdf != null && onDeletePdf != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Delete Document", color = RedPrimary) },
+                                    onClick = {
+                                        showMenu = false
+                                        showDeleteDialog = true
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = RedPrimary) }
+                                )
+                            }
 
                             DropdownMenuItem(
                                 text = { Text("Jump to Page") },
@@ -643,113 +692,7 @@ fun PdfReaderScreen(
     }
 }
 
-@Composable
-fun PdfDetailsDialog(
-    pdf: PdfEntity?,
-    documentTitle: String,
-    onDismiss: () -> Unit
-) {
-    val context = LocalContext.current
-    val file = pdf?.path?.let { File(it) }
-    val lastModifiedDate = if (file != null && file.exists()) {
-        SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(file.lastModified()))
-    } else if (pdf?.timestamp != null) {
-        SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(pdf.timestamp))
-    } else {
-        "Recent Document"
-    }
 
-    val exactPath = file?.absolutePath ?: pdf?.path ?: "Internal Device Storage"
-    val sizeText = pdf?.sizeFormatted ?: if (file != null && file.exists()) "${file.length() / 1024} KB" else "0 KB"
-    val exactBytes = if (file != null && file.exists()) "${file.length()} bytes" else "${pdf?.sizeBytes ?: 0} bytes"
-    val pagesText = "${pdf?.pageCount ?: 1} pages"
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Filled.Info,
-                    contentDescription = null,
-                    tint = RedPrimary,
-                    modifier = Modifier.size(24.dp)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text("PDF Document Details", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            }
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                DetailRow(label = "Title", value = documentTitle)
-                HorizontalDivider(color = WarmBorderLight)
-                DetailRow(label = "File Size", value = "$sizeText ($exactBytes)")
-                DetailRow(label = "Page Count", value = pagesText)
-                DetailRow(label = "Modified Date", value = lastModifiedDate)
-                DetailRow(label = "Category", value = pdf?.category ?: "Local PDF")
-                HorizontalDivider(color = WarmBorderLight)
-                DetailRow(
-                    label = "Storage Path",
-                    value = exactPath,
-                    isCopyable = true,
-                    onCopy = {
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                        val clip = android.content.ClipData.newPlainText("PDF Path", exactPath)
-                        clipboard.setPrimaryClip(clip)
-                        Toast.makeText(context, "Path copied to clipboard", Toast.LENGTH_SHORT).show()
-                    }
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Close", color = RedPrimary, fontWeight = FontWeight.Bold)
-            }
-        },
-        shape = RoundedCornerShape(20.dp),
-        containerColor = Color.White
-    )
-}
-
-@Composable
-private fun DetailRow(
-    label: String,
-    value: String,
-    isCopyable: Boolean = false,
-    onCopy: (() -> Unit)? = null
-) {
-    Column {
-        Text(text = label, fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.SemiBold)
-        Spacer(modifier = Modifier.height(2.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = value,
-                fontSize = 13.sp,
-                color = Color(0xFF1C1B1F),
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.weight(1f)
-            )
-            if (isCopyable && onCopy != null) {
-                IconButton(onClick = onCopy, modifier = Modifier.size(28.dp)) {
-                    Icon(
-                        imageVector = Icons.Filled.ContentCopy,
-                        contentDescription = "Copy Path",
-                        tint = RedPrimary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            }
-        }
-    }
-}
 
 @Composable
 fun JumpToPageDialog(

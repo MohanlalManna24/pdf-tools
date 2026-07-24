@@ -257,6 +257,12 @@ class MainActivity : ComponentActivity() {
                                                 onOpenLocalPdf = { uri -> viewModel.importUriToApp(uri) },
                                                 onRenamePdf = { targetPdf, newName ->
                                                     viewModel.renamePdf(targetPdf, newName)
+                                                },
+                                                onDeletePdf = { targetPdf ->
+                                                    viewModel.deleteFile(targetPdf)
+                                                },
+                                                onToggleFavorite = { targetPdf ->
+                                                    viewModel.toggleFavorite(targetPdf)
                                                 }
                                             )
                                         }
