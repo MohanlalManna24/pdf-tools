@@ -255,10 +255,19 @@ class MainActivity : ComponentActivity() {
                                         }
 
                                         is AppScreen.PdfReader -> {
+                                            val allPdfs by viewModel.allFiles.collectAsState()
                                             PdfReaderScreen(
                                                 pdf = activePdf,
+                                                allPdfs = allPdfs,
+                                                onSelectPdf = { selectedPdf ->
+                                                    viewModel.openPdf(selectedPdf)
+                                                },
                                                 onBack = { currentScreen = AppScreen.MainTab(currentTab) },
-                                                onOpenLocalPdf = { uri -> viewModel.importUriToApp(uri) },
+                                                onOpenLocalPdf = { uri ->
+                                                    viewModel.importUriToApp(uri) { importedPdf ->
+                                                        viewModel.openPdf(importedPdf)
+                                                    }
+                                                },
                                                 onRenamePdf = { targetPdf, newName ->
                                                     viewModel.renamePdf(targetPdf, newName)
                                                 },
