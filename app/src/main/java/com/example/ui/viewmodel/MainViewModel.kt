@@ -305,8 +305,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     "password" -> {
                         val firstPath = titlesOrPaths.firstOrNull() ?: ""
-                        val label = if (extraParam.isNotBlank()) "LOCKED - $extraParam" else "ENCRYPTED"
-                        resultInfo = PdfEngine.createWatermarkedPdf(context, firstPath, label)
+                        resultInfo = PdfEngine.protectPdf(context, firstPath, extraParam)
                         displayTitle = "Protected_Doc_${System.currentTimeMillis().toString().takeLast(4)}.pdf"
                     }
                     "pdf_to_image" -> {

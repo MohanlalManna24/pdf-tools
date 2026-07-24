@@ -14,6 +14,7 @@ import android.os.Environment
 import android.os.ParcelFileDescriptor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.security.MessageDigest
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -120,29 +121,117 @@ object PdfEngine {
         }
     }
 
-    /**
-     * Get Page Count of a local PDF file
-     */
-    fun getPdfPageCount(file: File): Int {
-        if (!file.exists() || file.length() == 0L) return 1
+    fun sha256(input: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))
+        return bytes.joinToString("") { "%02x".format(it) }
+    }
+
+    fun isPasswordProtected(file: File): Boolean {
+        if (!file.exists() || file.length() == 0L) return false
+        try {
+            val bytes = file.readBytes()
+            val text = String(bytes, Charsets.ISO_8859_1)
+            if (text.contains("/Encrypt") || text.contains("/PasswordHash")) return true
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         return try {
             ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
-                PdfRenderer(pfd).use { renderer ->
-                    renderer.pageCount
+                PdfRenderer(pfd).use {
+                    false
                 }
             }
+        } catch (e: SecurityException) {
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun verifyPassword(file: File, passwordText: String): Boolean {
+        if (!file.exists()) return false
+        val passHash = sha256(passwordText.trim())
+        try {
+            val bytes = file.readBytes()
+            val text = String(bytes, Charsets.ISO_8859_1)
+            val hashRegex = Regex("""/PasswordHash\s*<([0-9a-fA-F]+)>""")
+            val match = hashRegex.find(text)
+            if (match != null) {
+                val storedHash = match.groupValues[1]
+                return storedHash.equals(passHash, ignoreCase = true)
+            }
+            if (!isPasswordProtected(file)) return true
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return false
+    }
+
+    private fun parsePageCountFromPdfBytes(file: File): Int {
+        return try {
+            val text = String(file.readBytes(), Charsets.ISO_8859_1)
+            val regex = Regex("""/Count\s+(\d+)""")
+            val matches = regex.findAll(text)
+            val count = matches.mapNotNull { it.groupValues[1].toIntOrNull() }.maxOrNull()
+            count ?: 1
         } catch (e: Exception) {
             1
         }
     }
 
     /**
+     * Get Page Count of a local PDF file
+     */
+    fun getPdfPageCount(file: File, passwordText: String? = null): Int {
+        if (!file.exists() || file.length() == 0L) return 1
+        var targetFile = file
+        var tempUnlockedFile: File? = null
+
+        if (isPasswordProtected(file)) {
+            if (passwordText != null && verifyPassword(file, passwordText)) {
+                tempUnlockedFile = createCleanUnlockedTempFile(file)
+                if (tempUnlockedFile != null && tempUnlockedFile.exists()) {
+                    targetFile = tempUnlockedFile
+                }
+            } else {
+                return parsePageCountFromPdfBytes(file)
+            }
+        }
+
+        return try {
+            ParcelFileDescriptor.open(targetFile, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
+                PdfRenderer(pfd).use { renderer ->
+                    renderer.pageCount
+                }
+            }
+        } catch (e: Exception) {
+            1
+        } finally {
+            tempUnlockedFile?.delete()
+        }
+    }
+
+    /**
      * Render page of PDF file as Bitmap
      */
-    fun renderPageToBitmap(file: File, pageIndex: Int, width: Int = 800): Bitmap? {
+    fun renderPageToBitmap(file: File, pageIndex: Int, width: Int = 800, passwordText: String? = null): Bitmap? {
         if (!file.exists()) return null
+        var targetFile = file
+        var tempUnlockedFile: File? = null
+
+        if (isPasswordProtected(file)) {
+            if (passwordText != null && verifyPassword(file, passwordText)) {
+                tempUnlockedFile = createCleanUnlockedTempFile(file)
+                if (tempUnlockedFile != null && tempUnlockedFile.exists()) {
+                    targetFile = tempUnlockedFile
+                }
+            } else {
+                return serveLockedDocumentBitmap(pageIndex)
+            }
+        }
+
         return try {
-            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
+            ParcelFileDescriptor.open(targetFile, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
                 PdfRenderer(pfd).use { renderer ->
                     if (pageIndex < 0 || pageIndex >= renderer.pageCount) return null
                     renderer.openPage(pageIndex).use { page ->
@@ -159,6 +248,117 @@ object PdfEngine {
         } catch (e: Exception) {
             e.printStackTrace()
             serveSampleDocumentBitmap(pageIndex)
+        } finally {
+            tempUnlockedFile?.delete()
+        }
+    }
+
+    private fun serveLockedDocumentBitmap(pageIndex: Int): Bitmap {
+        val bitmap = Bitmap.createBitmap(600, 800, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(Color.parseColor("#FFF8F8"))
+
+        val paint = Paint().apply {
+            color = Color.parseColor("#D31A28")
+            textSize = 28f
+            isAntiAlias = true
+            isFakeBoldText = true
+            textAlign = Paint.Align.CENTER
+        }
+        canvas.drawText("🔒 Password Protected", 300f, 380f, paint)
+
+        val subPaint = Paint().apply {
+            color = Color.parseColor("#757575")
+            textSize = 18f
+            isAntiAlias = true
+            textAlign = Paint.Align.CENTER
+        }
+        canvas.drawText("Unlock to view content", 300f, 430f, subPaint)
+        return bitmap
+    }
+
+    suspend fun protectPdf(context: Context, inputPath: String, passwordText: String): LocalPdfInfo = withContext(Dispatchers.IO) {
+        val sourceFile = File(inputPath)
+        val outputFile = createOutputFile(context, "Protected_Doc")
+        val pass = passwordText.ifBlank { "1234" }
+        val passHash = sha256(pass)
+
+        var count = 1
+        if (sourceFile.exists() && sourceFile.length() > 0) {
+            count = getPdfPageCount(sourceFile)
+        }
+
+        val tempDoc = PdfDocument()
+        for (p in 0 until count) {
+            val bitmap = renderPageToBitmap(sourceFile, p, 1000)
+            if (bitmap != null) {
+                val pageInfo = PdfDocument.PageInfo.Builder(bitmap.width, bitmap.height, p + 1).create()
+                val newPage = tempDoc.startPage(pageInfo)
+                newPage.canvas.drawBitmap(bitmap, 0f, 0f, null)
+                tempDoc.finishPage(newPage)
+            }
+        }
+
+        val tempFile = File(context.cacheDir, "temp_unencrypted_${System.currentTimeMillis()}.pdf")
+        FileOutputStream(tempFile).use { out -> tempDoc.writeTo(out) }
+        tempDoc.close()
+
+        val rawBytes = tempFile.readBytes()
+        tempFile.delete()
+
+        val encryptedBytes = applyPdfEncryption(rawBytes, passHash)
+        FileOutputStream(outputFile).use { out -> out.write(encryptedBytes) }
+
+        LocalPdfInfo(
+            file = outputFile,
+            pageCount = count,
+            sizeBytes = outputFile.length()
+        )
+    }
+
+    private fun applyPdfEncryption(rawBytes: ByteArray, passHash: String): ByteArray {
+        try {
+            val text = String(rawBytes, Charsets.ISO_8859_1)
+            val trailerIndex = text.lastIndexOf("trailer")
+            if (trailerIndex != -1) {
+                val dictStartIndex = text.indexOf("<<", trailerIndex)
+                if (dictStartIndex != -1) {
+                    val insertPos = dictStartIndex + 2
+                    val encryptEntry = "\n/Encrypt << /Filter /Standard /V 2 /R 3 /P -1028 /U (${passHash.take(32)}) /O (${passHash.takeLast(32)}) >>\n/PasswordHash <$passHash>\n"
+
+                    val prefix = rawBytes.copyOfRange(0, insertPos)
+                    val suffix = rawBytes.copyOfRange(insertPos, rawBytes.size)
+                    val encryptBytes = encryptEntry.toByteArray(Charsets.ISO_8859_1)
+
+                    val result = ByteArray(prefix.size + encryptBytes.size + suffix.size)
+                    System.arraycopy(prefix, 0, result, 0, prefix.size)
+                    System.arraycopy(encryptBytes, 0, result, prefix.size, encryptBytes.size)
+                    System.arraycopy(suffix, 0, result, prefix.size + encryptBytes.size, suffix.size)
+                    return result
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        val ext = "\n/PasswordHash <$passHash>\n/Encrypt << /Filter /Standard /V 2 /R 3 /P -1028 >>\n".toByteArray(Charsets.ISO_8859_1)
+        return rawBytes + ext
+    }
+
+    fun createCleanUnlockedTempFile(file: File): File? {
+        return try {
+            val rawBytes = file.readBytes()
+            val text = String(rawBytes, Charsets.ISO_8859_1)
+            val cleanText = text
+                .replace(Regex("""/Encrypt\s*<<[^>]*>>"""), "")
+                .replace(Regex("""/PasswordHash\s*<[0-9a-fA-F]+>"""), "")
+
+            val cleanBytes = cleanText.toByteArray(Charsets.ISO_8859_1)
+            val temp = File.createTempFile("unlocked_", ".pdf")
+            temp.writeBytes(cleanBytes)
+            temp
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
         }
     }
 

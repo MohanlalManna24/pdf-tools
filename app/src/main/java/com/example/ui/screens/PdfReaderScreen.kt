@@ -59,6 +59,9 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.AlertDialog
@@ -73,11 +76,16 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -99,6 +107,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -168,9 +177,13 @@ fun PdfReaderScreen(
         return
     }
 
+    val isProtected = remember(pdf.path) { PdfEngine.isPasswordProtected(file) }
+    var isUnlocked by remember(pdf.path) { mutableStateOf(!isProtected) }
+    var unlockedPassword by remember(pdf.path) { mutableStateOf<String?>(null) }
+
     val documentTitle = pdf.title
     val sizeText = pdf.sizeFormatted
-    val totalPages = if (fileExists) PdfEngine.getPdfPageCount(file).coerceAtLeast(1) else pdf.pageCount.coerceAtLeast(1)
+    val totalPages = if (fileExists) PdfEngine.getPdfPageCount(file, unlockedPassword).coerceAtLeast(1) else pdf.pageCount.coerceAtLeast(1)
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -205,17 +218,150 @@ fun PdfReaderScreen(
     // Page bitmaps cache
     val renderedPages = remember(pdf.path) { mutableStateMapOf<Int, Bitmap?>() }
 
-    LaunchedEffect(pdf.path) {
+    LaunchedEffect(pdf.path, unlockedPassword, isUnlocked) {
+        if (!isUnlocked) return@LaunchedEffect
         renderedPages.clear()
         withContext(Dispatchers.IO) {
-            val count = PdfEngine.getPdfPageCount(file)
+            val count = PdfEngine.getPdfPageCount(file, unlockedPassword)
             for (p in 0 until count) {
-                val bitmap = PdfEngine.renderPageToBitmap(file, p, 900)
+                val bitmap = PdfEngine.renderPageToBitmap(file, p, 900, unlockedPassword)
                 withContext(Dispatchers.Main) {
                     renderedPages[p] = bitmap
                 }
             }
         }
+    }
+
+    if (isProtected && !isUnlocked) {
+        var inputPassword by remember { mutableStateOf("") }
+        var passwordError by remember { mutableStateOf(false) }
+        var passwordVisible by remember { mutableStateOf(false) }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFFFAF8F5)),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth(0.88f)
+                    .padding(16.dp),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFFFEBEE)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Lock,
+                            contentDescription = "Locked",
+                            tint = com.example.ui.theme.RedPrimary,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = "Password Protected",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1C1B1F)
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = "Enter password to view \"${pdf.title}\"",
+                        fontSize = 13.sp,
+                        color = Color.Gray,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    OutlinedTextField(
+                        value = inputPassword,
+                        onValueChange = {
+                            inputPassword = it
+                            passwordError = false
+                        },
+                        label = { Text("Password") },
+                        singleLine = true,
+                        isError = passwordError,
+                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                Icon(
+                                    imageVector = if (passwordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                    contentDescription = "Toggle Password Visibility"
+                                )
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("reader_password_input"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = com.example.ui.theme.RedPrimary)
+                    )
+
+                    if (passwordError) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Incorrect password. Please try again.",
+                            color = Color.Red,
+                            fontSize = 12.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onBack,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp),
+                            shape = RoundedCornerShape(24.dp)
+                        ) {
+                            Text("Back", color = Color.Gray)
+                        }
+
+                        Button(
+                            onClick = {
+                                if (PdfEngine.verifyPassword(file, inputPassword)) {
+                                    unlockedPassword = inputPassword
+                                    isUnlocked = true
+                                } else {
+                                    passwordError = true
+                                }
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp),
+                            shape = RoundedCornerShape(24.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = com.example.ui.theme.RedPrimary)
+                        ) {
+                            Text("Unlock", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+        return
     }
 
     if (showAiBottomSheet) {

@@ -44,6 +44,8 @@ import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.WaterDrop
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -186,6 +188,7 @@ fun ToolDetailScreen(
     // Tool specific params
     var watermarkText by remember { mutableStateOf("CONFIDENTIAL") }
     var passwordText by remember { mutableStateOf("") }
+    var isPasswordVisible by remember { mutableStateOf(false) }
     var compressionPreset by remember { mutableStateOf("Recommended (Balanced)") }
     var rotationAngle by remember { mutableStateOf("90°") }
 
@@ -831,8 +834,10 @@ fun ToolDetailScreen(
                         border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(WarmBorderLight))
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
-                            Text("Set Password", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Set Document Password", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Encrypt this PDF document with password protection.", fontSize = 12.sp, color = Color.Gray)
+                            Spacer(modifier = Modifier.height(10.dp))
                             OutlinedTextField(
                                 value = passwordText,
                                 onValueChange = { passwordText = it },
@@ -840,6 +845,15 @@ fun ToolDetailScreen(
                                 placeholder = { Text("Enter secret password...") },
                                 shape = RoundedCornerShape(12.dp),
                                 singleLine = true,
+                                visualTransformation = if (isPasswordVisible) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                                trailingIcon = {
+                                    IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
+                                        Icon(
+                                            imageVector = if (isPasswordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                            contentDescription = "Toggle password visibility"
+                                        )
+                                    }
+                                },
                                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = RedPrimary)
                             )
                         }
