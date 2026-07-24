@@ -25,6 +25,12 @@ interface PdfDao {
     @Query("SELECT * FROM pdf_files WHERE id = :id")
     fun getPdfById(id: Int): Flow<PdfEntity?>
 
+    @Query("SELECT * FROM pdf_files WHERE path = :path LIMIT 1")
+    suspend fun getPdfByPath(path: String): PdfEntity?
+
+    @Query("SELECT * FROM pdf_files WHERE title = :title AND sizeBytes = :sizeBytes LIMIT 1")
+    suspend fun getPdfByTitleAndSize(title: String, sizeBytes: Long): PdfEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPdf(pdf: PdfEntity): Long
 

@@ -147,25 +147,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _activePdf.value = pdf
     }
 
-    fun importUriToApp(uri: Uri) {
+    fun importUriToApp(uri: Uri, onComplete: ((PdfEntity) -> Unit)? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             val context = getApplication<Application>()
             val tempFile = PdfEngine.getFileFromUri(context, uri)
             if (tempFile != null && tempFile.exists()) {
                 val pageCount = PdfEngine.getPdfPageCount(tempFile)
-                val sizeKB = (tempFile.length() / 1024).coerceAtLeast(1)
-                val newEntity = PdfEntity(
-                    title = tempFile.name,
-                    path = tempFile.absolutePath,
-                    sizeFormatted = if (sizeKB > 1024) "${String.format("%.1f", sizeKB / 1024.0)} MB" else "$sizeKB KB",
-                    sizeBytes = tempFile.length(),
-                    pageCount = pageCount,
-                    dateModifiedFormatted = "Just now",
-                    timestamp = System.currentTimeMillis(),
-                    category = "IMPORTED"
-                )
-                repository.insertPdf(newEntity)
-                _activePdf.value = newEntity
+                val sizeBytes = tempFile.length()
+                val sizeKB = (sizeBytes / 1024).coerceAtLeast(1)
+                val sizeFormatted = if (sizeKB > 1024) "${String.format("%.1f", sizeKB / 1024.0)} MB" else "$sizeKB KB"
+
+                // Duplicate prevention check: search by exact path OR title + size
+                val existing = repository.getPdfByTitleAndSize(tempFile.name, sizeBytes)
+                    ?: repository.getPdfByPath(tempFile.absolutePath)
+
+                val targetEntity: PdfEntity
+                if (existing != null) {
+                    // Update timestamp to float to top of recents without creating duplicate entry
+                    targetEntity = existing.copy(
+                        timestamp = System.currentTimeMillis(),
+                        dateModifiedFormatted = "Just now"
+                    )
+                    repository.updatePdf(targetEntity)
+                } else {
+                    val newEntity = PdfEntity(
+                        title = tempFile.name,
+                        path = tempFile.absolutePath,
+                        sizeFormatted = sizeFormatted,
+                        sizeBytes = sizeBytes,
+                        pageCount = pageCount,
+                        dateModifiedFormatted = "Just now",
+                        timestamp = System.currentTimeMillis(),
+                        category = "IMPORTED"
+                    )
+                    val newId = repository.insertPdf(newEntity)
+                    targetEntity = newEntity.copy(id = newId.toInt())
+                }
+
+                _activePdf.value = targetEntity
+                withContext(Dispatchers.Main) {
+                    onComplete?.invoke(targetEntity)
+                }
             }
         }
     }

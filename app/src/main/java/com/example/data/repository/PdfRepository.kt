@@ -19,6 +19,10 @@ class PdfRepository(private val pdfDao: PdfDao) {
 
     fun getPdfById(id: Int): Flow<PdfEntity?> = pdfDao.getPdfById(id)
 
+    suspend fun getPdfByPath(path: String): PdfEntity? = pdfDao.getPdfByPath(path)
+
+    suspend fun getPdfByTitleAndSize(title: String, sizeBytes: Long): PdfEntity? = pdfDao.getPdfByTitleAndSize(title, sizeBytes)
+
     suspend fun insertPdf(pdf: PdfEntity): Long = pdfDao.insertPdf(pdf)
 
     suspend fun updatePdf(pdf: PdfEntity) = pdfDao.updatePdf(pdf)

@@ -1,5 +1,8 @@
 package com.example.ui.screens
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import com.example.ui.components.AiAssistantBottomSheet
 
 import androidx.compose.foundation.background
@@ -120,6 +123,16 @@ fun HomeScreen(
 
     var pdfToRename by remember { mutableStateOf<PdfEntity?>(null) }
     var showAiBottomSheet by remember { mutableStateOf(false) }
+
+    val pdfPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.importUriToApp(uri) { importedPdf ->
+                onOpenPdf(importedPdf)
+            }
+        }
+    }
 
     if (showAiBottomSheet) {
         AiAssistantBottomSheet(
@@ -468,8 +481,10 @@ fun HomeScreen(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 Button(
-                                    onClick = { onSelectTool("reader") },
-                                    modifier = Modifier.weight(1f).height(42.dp),
+                                    onClick = {
+                                        pdfPickerLauncher.launch(arrayOf("application/pdf", "*/*"))
+                                    },
+                                    modifier = Modifier.weight(1f).height(42.dp).testTag("home_open_pdf_btn"),
                                     shape = RoundedCornerShape(14.dp),
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = Color.White,

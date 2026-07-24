@@ -77,17 +77,43 @@ object PdfEngine {
     }
 
     /**
-     * Copy URI content to temporary cache file
+     * Copy URI content to app directory preserving original document name
      */
     fun getFileFromUri(context: Context, uri: Uri): File? {
         return try {
-            val inputStream = context.contentResolver.openInputStream(uri) ?: return null
-            val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-            val tempFile = File(context.cacheDir, "temp_input_$timeStamp.pdf")
-            tempFile.outputStream().use { output ->
-                inputStream.copyTo(output)
+            var fileName: String? = null
+            if (uri.scheme == "content") {
+                val cursor = context.contentResolver.query(uri, null, null, null, null)
+                cursor?.use {
+                    if (it.moveToFirst()) {
+                        val nameIndex = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (nameIndex != -1) {
+                            fileName = it.getString(nameIndex)
+                        }
+                    }
+                }
             }
-            tempFile
+            if (fileName.isNullOrBlank()) {
+                val lastSegment = uri.lastPathSegment
+                fileName = if (!lastSegment.isNullOrBlank()) {
+                    if (lastSegment.contains("/")) lastSegment.substringAfterLast('/') else lastSegment
+                } else {
+                    "Imported_Doc_${System.currentTimeMillis().toString().takeLast(4)}.pdf"
+                }
+            }
+            if (!fileName!!.endsWith(".pdf", ignoreCase = true)) {
+                fileName = "$fileName.pdf"
+            }
+
+            val dir = getOutputDirectory(context)
+            val destFile = File(dir, fileName!!)
+            
+            context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                destFile.outputStream().use { outputStream ->
+                    inputStream.copyTo(outputStream)
+                }
+            }
+            if (destFile.exists() && destFile.length() > 0) destFile else null
         } catch (e: Exception) {
             e.printStackTrace()
             null

@@ -254,6 +254,7 @@ class MainActivity : ComponentActivity() {
                                             PdfReaderScreen(
                                                 pdf = activePdf,
                                                 onBack = { currentScreen = AppScreen.MainTab(currentTab) },
+                                                onOpenLocalPdf = { uri -> viewModel.importUriToApp(uri) },
                                                 onRenamePdf = { targetPdf, newName ->
                                                     viewModel.renamePdf(targetPdf, newName)
                                                 }

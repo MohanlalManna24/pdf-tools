@@ -1,6 +1,9 @@
 package com.example.ui.screens
 
+import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +24,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
@@ -87,6 +91,16 @@ fun FilesScreen(
     var selectedFilterTab by remember { mutableStateOf("All") } // "All", "Scanned", "Favorites"
     var pdfToRename by remember { mutableStateOf<PdfEntity?>(null) }
 
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.importUriToApp(uri) { importedPdf ->
+                onOpenPdf(importedPdf)
+            }
+        }
+    }
+
     val pdfForDialog = pdfToRename
     if (pdfForDialog != null) {
         RenamePdfDialog(
@@ -143,8 +157,35 @@ fun FilesScreen(
                         )
                     }
                 },
+                actions = {
+                    IconButton(
+                        onClick = { filePickerLauncher.launch(arrayOf("application/pdf", "*/*")) },
+                        modifier = Modifier.testTag("files_import_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = "Open Local PDF",
+                            tint = RedPrimary
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFFFAF8F5))
             )
+        },
+        floatingActionButton = {
+            androidx.compose.material3.FloatingActionButton(
+                onClick = { filePickerLauncher.launch(arrayOf("application/pdf", "*/*")) },
+                shape = CircleShape,
+                containerColor = RedPrimary,
+                contentColor = Color.White,
+                modifier = Modifier.padding(bottom = 60.dp).testTag("files_fab_import")
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = "Open Local PDF",
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
     ) { innerPadding ->
         Column(
