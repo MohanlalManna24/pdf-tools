@@ -5,12 +5,24 @@ import android.graphics.Canvas
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
+import org.opencv.core.Core
+import org.opencv.core.CvType
+import org.opencv.core.Mat
+import org.opencv.core.Size
+import org.opencv.imgproc.Imgproc
 import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Production Document Image Enhancer Engine (Adobe Scan / Microsoft Lens level quality).
- * Provides Auto Enhance, Magic Color, Sauvola/Bradley Adaptive B&W, Grayscale, and High Contrast filters.
+ * Enterprise Production Scanner Image Enhancer Engine.
+ *
+ * Implements high-performance OpenCV document processing pipelines:
+ * - CLAHE (Contrast Limited Adaptive Histogram Equalization)
+ * - Morphological Close & Division Illumination/Shadow Removal
+ * - Gaussian / Adaptive Thresholding for crisp B&W text binarization
+ * - Bilateral Filter & Median Blur Noise Reduction
+ * - Unsharp Mask Sharpening for maximum document legibility
+ * - Magic Color & Luminance/Saturation boosts
  */
 object ImageEnhancer {
 
@@ -18,6 +30,12 @@ object ImageEnhancer {
      * Apply selected FilterType to a document page bitmap.
      */
     fun applyFilter(src: Bitmap, filterType: FilterType): Bitmap {
+        if (src.width <= 0 || src.height <= 0) return src
+
+        if (!OpenCVManager.isReady()) {
+            OpenCVManager.init()
+        }
+
         return when (filterType) {
             FilterType.ORIGINAL -> src
             FilterType.AUTO_ENHANCE -> applyAutoEnhance(src)
@@ -29,9 +47,315 @@ object ImageEnhancer {
     }
 
     /**
-     * Auto Enhance: Local contrast expansion, lightness normalization, and sharpness boost.
+     * Auto Enhance:
+     * - Shadow Reduction via Morphological Closing background division
+     * - CLAHE contrast adjustment on Luminance (Y) channel
+     * - Bilateral Filter noise reduction
+     * - Unsharp Mask sharpening for ultra-readable text
      */
     fun applyAutoEnhance(src: Bitmap): Bitmap {
+        if (!OpenCVManager.isReady()) return fallbackAutoEnhance(src)
+
+        val srcMat = Mat()
+        val rgbMat = Mat()
+        val ycrcbMat = Mat()
+        val bgMat = Mat()
+        val normY = Mat()
+        val enhancedY = Mat()
+        val denoisedY = Mat()
+        val blurredY = Mat()
+        val sharpY = Mat()
+        val dstMat = Mat()
+
+        return try {
+            val mat = OpenCVManager.bitmapToMat(src)
+            mat.copyTo(srcMat)
+            mat.release()
+
+            // Convert RGBA to YCrCb to isolate luminance
+            Imgproc.cvtColor(srcMat, rgbMat, Imgproc.COLOR_RGBA2RGB)
+            Imgproc.cvtColor(rgbMat, ycrcbMat, Imgproc.COLOR_RGB2YCrCb)
+
+            val channels = ArrayList<Mat>()
+            Core.split(ycrcbMat, channels)
+            val yChannel = channels[0]
+
+            // 1. Shadow Reduction & Illumination Normalization
+            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(25.0, 25.0))
+            Imgproc.morphologyEx(yChannel, bgMat, Imgproc.MORPH_CLOSE, kernel)
+            kernel.release()
+
+            Core.divide(yChannel, bgMat, normY, 255.0)
+
+            // 2. CLAHE (Contrast Limited Adaptive Histogram Equalization)
+            val clahe = Imgproc.createCLAHE(2.5, Size(8.0, 8.0))
+            clahe.apply(normY, enhancedY)
+            clahe.collectGarbage()
+
+            // 3. Bilateral Filter Noise Reduction
+            Imgproc.bilateralFilter(enhancedY, denoisedY, 5, 50.0, 50.0)
+
+            // 4. Unsharp Mask Sharpening
+            Imgproc.GaussianBlur(denoisedY, blurredY, Size(0.0, 0.0), 3.0)
+            Core.addWeighted(denoisedY, 1.4, blurredY, -0.4, 0.0, sharpY)
+
+            // Reassemble YCrCb channels
+            channels[0] = sharpY
+            Core.merge(channels, ycrcbMat)
+
+            for (c in channels) {
+                if (c != sharpY) c.release()
+            }
+
+            Imgproc.cvtColor(ycrcbMat, rgbMat, Imgproc.COLOR_YCrCb2RGB)
+            Imgproc.cvtColor(rgbMat, dstMat, Imgproc.COLOR_RGB2RGBA)
+
+            OpenCVManager.matToBitmap(dstMat)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            fallbackAutoEnhance(src)
+        } finally {
+            srcMat.release()
+            rgbMat.release()
+            ycrcbMat.release()
+            bgMat.release()
+            normY.release()
+            enhancedY.release()
+            denoisedY.release()
+            blurredY.release()
+            sharpY.release()
+            dstMat.release()
+        }
+    }
+
+    /**
+     * Magic Color: Adobe Scan style filter.
+     * Eliminates uneven shadows, paper creases, and yellow tinting while retaining vibrant text & logo colors.
+     */
+    fun applyMagicColor(src: Bitmap): Bitmap {
+        if (!OpenCVManager.isReady()) return fallbackMagicColor(src)
+
+        val srcMat = Mat()
+        val rgbMat = Mat()
+        val labMat = Mat()
+        val bgL = Mat()
+        val normL = Mat()
+        val enhancedL = Mat()
+        val sharpL = Mat()
+        val dstMat = Mat()
+
+        return try {
+            val mat = OpenCVManager.bitmapToMat(src)
+            mat.copyTo(srcMat)
+            mat.release()
+
+            // Convert RGBA to LAB color space
+            Imgproc.cvtColor(srcMat, rgbMat, Imgproc.COLOR_RGBA2RGB)
+            Imgproc.cvtColor(rgbMat, labMat, Imgproc.COLOR_RGB2Lab)
+
+            val channels = ArrayList<Mat>()
+            Core.split(labMat, channels)
+            val lChannel = channels[0]
+
+            // 1. Background Illumination Normalization on Lightness channel
+            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(31.0, 31.0))
+            Imgproc.morphologyEx(lChannel, bgL, Imgproc.MORPH_CLOSE, kernel)
+            kernel.release()
+
+            Core.divide(lChannel, bgL, normL, 255.0)
+
+            // 2. CLAHE for text contrast
+            val clahe = Imgproc.createCLAHE(3.0, Size(8.0, 8.0))
+            clahe.apply(normL, enhancedL)
+            clahe.collectGarbage()
+
+            // 3. Unsharp Mask Sharpening
+            val blurredL = Mat()
+            Imgproc.GaussianBlur(enhancedL, blurredL, Size(0.0, 0.0), 2.5)
+            Core.addWeighted(enhancedL, 1.5, blurredL, -0.5, 0.0, sharpL)
+            blurredL.release()
+
+            channels[0] = sharpL
+            Core.merge(channels, labMat)
+
+            for (c in channels) {
+                if (c != sharpL) c.release()
+            }
+
+            Imgproc.cvtColor(labMat, rgbMat, Imgproc.COLOR_Lab2RGB)
+            Imgproc.cvtColor(rgbMat, dstMat, Imgproc.COLOR_RGB2RGBA)
+
+            val tempBmp = OpenCVManager.matToBitmap(dstMat)
+
+            // Additional background whitening pass
+            fallbackMagicColor(tempBmp)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            fallbackMagicColor(src)
+        } finally {
+            srcMat.release()
+            rgbMat.release()
+            labMat.release()
+            bgL.release()
+            normL.release()
+            enhancedL.release()
+            sharpL.release()
+            dstMat.release()
+        }
+    }
+
+    /**
+     * Adaptive Black & White (Gaussian Adaptive Binarization):
+     * Removes shadows, paper texture, and salt-and-pepper noise to generate crisp black text on white background.
+     */
+    fun applyAdaptiveBW(src: Bitmap): Bitmap {
+        if (!OpenCVManager.isReady()) return fallbackAdaptiveBW(src)
+
+        val srcMat = Mat()
+        val grayMat = Mat()
+        val denoisedMat = Mat()
+        val bgMat = Mat()
+        val normMat = Mat()
+        val bwMat = Mat()
+        val dstMat = Mat()
+
+        return try {
+            val mat = OpenCVManager.bitmapToMat(src)
+            mat.copyTo(srcMat)
+            mat.release()
+
+            Imgproc.cvtColor(srcMat, grayMat, Imgproc.COLOR_RGBA2GRAY)
+
+            // 1. Noise Reduction
+            Imgproc.medianBlur(grayMat, denoisedMat, 3)
+
+            // 2. Shadow Removal & Illumination Correction
+            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(31.0, 31.0))
+            Imgproc.morphologyEx(denoisedMat, bgMat, Imgproc.MORPH_CLOSE, kernel)
+            kernel.release()
+
+            Core.divide(denoisedMat, bgMat, normMat, 255.0)
+
+            // 3. Brightness Normalization
+            Core.normalize(normMat, normMat, 0.0, 255.0, Core.NORM_MINMAX)
+
+            // 4. Adaptive Thresholding
+            Imgproc.adaptiveThreshold(
+                normMat,
+                bwMat,
+                255.0,
+                Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+                Imgproc.THRESH_BINARY,
+                21,
+                12.0
+            )
+
+            Imgproc.cvtColor(bwMat, dstMat, Imgproc.COLOR_GRAY2RGBA)
+
+            OpenCVManager.matToBitmap(dstMat)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            fallbackAdaptiveBW(src)
+        } finally {
+            srcMat.release()
+            grayMat.release()
+            denoisedMat.release()
+            bgMat.release()
+            normMat.release()
+            bwMat.release()
+            dstMat.release()
+        }
+    }
+
+    /**
+     * Grayscale Filter:
+     * High-clarity grayscale document with shadow reduction, CLAHE, and noise smoothing.
+     */
+    fun applyGrayscale(src: Bitmap): Bitmap {
+        if (!OpenCVManager.isReady()) return fallbackGrayscale(src)
+
+        val srcMat = Mat()
+        val grayMat = Mat()
+        val bgMat = Mat()
+        val normMat = Mat()
+        val enhancedMat = Mat()
+        val denoisedMat = Mat()
+        val blurredMat = Mat()
+        val sharpMat = Mat()
+        val dstMat = Mat()
+
+        return try {
+            val mat = OpenCVManager.bitmapToMat(src)
+            mat.copyTo(srcMat)
+            mat.release()
+
+            Imgproc.cvtColor(srcMat, grayMat, Imgproc.COLOR_RGBA2GRAY)
+
+            // 1. Shadow Removal
+            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(25.0, 25.0))
+            Imgproc.morphologyEx(grayMat, bgMat, Imgproc.MORPH_CLOSE, kernel)
+            kernel.release()
+
+            Core.divide(grayMat, bgMat, normMat, 255.0)
+
+            // 2. CLAHE
+            val clahe = Imgproc.createCLAHE(2.0, Size(8.0, 8.0))
+            clahe.apply(normMat, enhancedMat)
+            clahe.collectGarbage()
+
+            // 3. Bilateral Filter
+            Imgproc.bilateralFilter(enhancedMat, denoisedMat, 5, 40.0, 40.0)
+
+            // 4. Sharpen
+            Imgproc.GaussianBlur(denoisedMat, blurredMat, Size(0.0, 0.0), 3.0)
+            Core.addWeighted(denoisedMat, 1.4, blurredMat, -0.4, 0.0, sharpMat)
+
+            Imgproc.cvtColor(sharpMat, dstMat, Imgproc.COLOR_GRAY2RGBA)
+
+            OpenCVManager.matToBitmap(dstMat)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            fallbackGrayscale(src)
+        } finally {
+            srcMat.release()
+            grayMat.release()
+            bgMat.release()
+            normMat.release()
+            enhancedMat.release()
+            denoisedMat.release()
+            blurredMat.release()
+            sharpMat.release()
+            dstMat.release()
+        }
+    }
+
+    /**
+     * High Contrast Monochrome Filter.
+     */
+    fun applyHighContrast(src: Bitmap): Bitmap {
+        val dest = Bitmap.createBitmap(src.width, src.height, src.config ?: Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(dest)
+        val paint = Paint().apply {
+            val cm = ColorMatrix()
+            cm.setSaturation(0f)
+            val scale = 2.4f
+            val translate = -128f * scale + 128f
+            val bwArray = floatArrayOf(
+                scale, scale, scale, 0f, translate,
+                scale, scale, scale, 0f, translate,
+                scale, scale, scale, 0f, translate,
+                0f, 0f, 0f, 1f, 0f
+            )
+            cm.set(bwArray)
+            colorFilter = ColorMatrixColorFilter(cm)
+        }
+        canvas.drawBitmap(src, 0f, 0f, paint)
+        return dest
+    }
+
+    // --- Android Fallback Routines ---
+
+    private fun fallbackAutoEnhance(src: Bitmap): Bitmap {
         val dest = Bitmap.createBitmap(src.width, src.height, src.config ?: Bitmap.Config.ARGB_8888)
         val canvas = Canvas(dest)
         val paint = Paint().apply {
@@ -51,11 +375,7 @@ object ImageEnhancer {
         return dest
     }
 
-    /**
-     * Magic Color: Adobe Scan style filter.
-     * Eliminates uneven shadows, paper creases, and yellow tinting while retaining vibrant text & logo colors.
-     */
-    fun applyMagicColor(src: Bitmap): Bitmap {
+    private fun fallbackMagicColor(src: Bitmap): Bitmap {
         val w = src.width
         val h = src.height
         val total = w * h
@@ -64,8 +384,6 @@ object ImageEnhancer {
 
         val outPixels = IntArray(total)
 
-        // Magic color algorithm:
-        // Calculate background paper luminance boost
         for (i in 0 until total) {
             val p = pixels[i]
             var r = (p shr 16) and 0xFF
@@ -74,19 +392,16 @@ object ImageEnhancer {
 
             val lum = (299 * r + 587 * g + 114 * b) / 1000
 
-            if (lum > 175) {
-                // Background paper whitening
-                val boost = ((lum - 175) * 1.6f).toInt()
+            if (lum > 170) {
+                val boost = ((lum - 170) * 1.6f).toInt()
                 r = min(255, r + boost)
                 g = min(255, g + boost)
                 b = min(255, b + boost)
             } else if (lum < 110) {
-                // Dark ink darkening
                 r = max(0, (r * 0.75f).toInt())
                 g = max(0, (g * 0.75f).toInt())
                 b = max(0, (b * 0.75f).toInt())
             } else {
-                // Mid-tone contrast boost
                 r = min(255, max(0, ((r - 128) * 1.25f + 128).toInt()))
                 g = min(255, max(0, ((g - 128) * 1.25f + 128).toInt()))
                 b = min(255, max(0, ((b - 128) * 1.25f + 128).toInt()))
@@ -100,18 +415,13 @@ object ImageEnhancer {
         return dest
     }
 
-    /**
-     * Adaptive Black & White (Sauvola / Bradley Binarization):
-     * Uses local integral image neighborhood comparison to handle uneven lighting and shadows perfectly.
-     */
-    fun applyAdaptiveBW(src: Bitmap): Bitmap {
+    private fun fallbackAdaptiveBW(src: Bitmap): Bitmap {
         val w = src.width
         val h = src.height
         val total = w * h
         val pixels = IntArray(total)
         src.getPixels(pixels, 0, w, 0, 0, w, h)
 
-        // Compute 2D Integral Image for fast O(1) local window mean calculation
         val integral = LongArray((w + 1) * (h + 1))
         val gray = IntArray(total)
 
@@ -128,8 +438,8 @@ object ImageEnhancer {
         }
 
         val outPixels = IntArray(total)
-        val s = (w / 16).coerceAtLeast(8) // Local window radius
-        val t = 0.15f // Sensitivity threshold percentage
+        val s = (w / 16).coerceAtLeast(8)
+        val t = 0.15f
 
         for (y in 0 until h) {
             val row = y * w
@@ -159,39 +469,12 @@ object ImageEnhancer {
         return dest
     }
 
-    /**
-     * Grayscale Filter: Smooth luminance conversion with subtle contrast enhancement.
-     */
-    fun applyGrayscale(src: Bitmap): Bitmap {
+    private fun fallbackGrayscale(src: Bitmap): Bitmap {
         val dest = Bitmap.createBitmap(src.width, src.height, src.config ?: Bitmap.Config.ARGB_8888)
         val canvas = Canvas(dest)
         val paint = Paint().apply {
             val cm = ColorMatrix()
             cm.setSaturation(0f)
-            colorFilter = ColorMatrixColorFilter(cm)
-        }
-        canvas.drawBitmap(src, 0f, 0f, paint)
-        return dest
-    }
-
-    /**
-     * High Contrast Monochrome Filter
-     */
-    fun applyHighContrast(src: Bitmap): Bitmap {
-        val dest = Bitmap.createBitmap(src.width, src.height, src.config ?: Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(dest)
-        val paint = Paint().apply {
-            val cm = ColorMatrix()
-            cm.setSaturation(0f)
-            val scale = 2.4f
-            val translate = -128f * scale + 128f
-            val bwArray = floatArrayOf(
-                scale, scale, scale, 0f, translate,
-                scale, scale, scale, 0f, translate,
-                scale, scale, scale, 0f, translate,
-                0f, 0f, 0f, 1f, 0f
-            )
-            cm.set(bwArray)
             colorFilter = ColorMatrixColorFilter(cm)
         }
         canvas.drawBitmap(src, 0f, 0f, paint)

@@ -6,18 +6,21 @@ import android.graphics.ImageFormat
 import android.graphics.Matrix
 import android.graphics.Rect
 import android.graphics.YuvImage
+import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import com.example.cv.AutoCaptureEngine
 import com.example.cv.AutoCaptureState
 import com.example.cv.CornerSmoother
 import com.example.cv.DocumentDetector
+import com.example.cv.OpenCVManager
 import com.example.cv.QuadPoints
+import com.example.cv.useMat
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 
 /**
- * CameraX ImageAnalysis.Analyzer for real-time background document detection.
+ * CameraX ImageAnalysis.Analyzer powered by high-performance OpenCV.
  * Executes on a dedicated background thread pool for 30 FPS non-blocking camera preview.
  */
 class DocumentImageAnalyzer(
@@ -26,9 +29,10 @@ class DocumentImageAnalyzer(
     private val onAutoCaptureTriggered: () -> Unit
 ) : ImageAnalysis.Analyzer {
 
-    private val cornerSmoother = CornerSmoother(alpha = 0.35f)
+    private val cornerSmoother = CornerSmoother(baseAlpha = 0.30f)
     private val autoCaptureEngine = AutoCaptureEngine()
-    private var isProcessingFrame = false
+    @Volatile private var isProcessingFrame = false
+    private var reusableYBuffer: ByteArray? = null
 
     fun setAutoModeEnabled(enabled: Boolean) {
         isAutoModeEnabled = enabled
@@ -39,7 +43,7 @@ class DocumentImageAnalyzer(
         autoCaptureEngine.reset()
     }
 
-    @androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
+    @OptIn(ExperimentalGetImage::class)
     override fun analyze(imageProxy: ImageProxy) {
         if (isProcessingFrame) {
             imageProxy.close()
@@ -48,31 +52,34 @@ class DocumentImageAnalyzer(
 
         isProcessingFrame = true
         try {
-            val bitmap = imageProxyToBitmap(imageProxy)
-            if (bitmap != null) {
-                // 1. Run Computer Vision Detection
-                val detectionResult = DocumentDetector.detectDocument(bitmap)
+            if (OpenCVManager.isReady()) {
+                val image = imageProxy.image
+                if (image != null && imageProxy.format == ImageFormat.YUV_420_888) {
+                    val requiredSize = image.planes[0].buffer.remaining()
+                    if (reusableYBuffer == null || reusableYBuffer!!.size < requiredSize) {
+                        reusableYBuffer = ByteArray(requiredSize)
+                    }
 
-                // 2. Temporal Corner Smoothing (no jitter/flickering)
-                val smoothedQuad = cornerSmoother.process(detectionResult)
-                val cornerDisplacement = cornerSmoother.getCornerDisplacement()
+                    // Extract downscaled 1-channel Grayscale Mat directly from Y-plane (sub-10ms)
+                    val grayMat = OpenCVManager.imageProxyToDownscaledGrayscaleMat(
+                        imageProxy = imageProxy,
+                        maxDim = 480,
+                        reusableBuffer = reusableYBuffer
+                    )
 
-                // 3. Evaluate Auto-Capture Engine
-                val autoState = autoCaptureEngine.evaluate(
-                    detectionResult = detectionResult,
-                    cornerDisplacement = cornerDisplacement,
-                    isAutoModeEnabled = isAutoModeEnabled
-                )
-
-                bitmap.recycle()
-
-                // Notify UI on main thread
-                onAnalysisResult(smoothedQuad, detectionResult.confidence, autoState)
-
-                if (autoState.isReadyToCapture) {
-                    onAutoCaptureTriggered()
-                    autoCaptureEngine.reset()
+                    if (grayMat != null) {
+                        grayMat.useMat { srcMat ->
+                            val detectionResult = DocumentDetector.detectDocumentFromMat(srcMat)
+                            processDetectionResult(detectionResult)
+                        }
+                    } else {
+                        fallbackBitmapAnalysis(imageProxy)
+                    }
+                } else {
+                    fallbackBitmapAnalysis(imageProxy)
                 }
+            } else {
+                fallbackBitmapAnalysis(imageProxy)
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -82,9 +89,34 @@ class DocumentImageAnalyzer(
         }
     }
 
-    /**
-     * Convert CameraX YUV_420_888 ImageProxy to Bitmap
-     */
+    private fun processDetectionResult(detectionResult: com.example.cv.DetectionResult) {
+        val smoothedQuad = cornerSmoother.process(detectionResult)
+        val cornerDisplacement = cornerSmoother.getCornerDisplacement()
+
+        val autoState = autoCaptureEngine.evaluate(
+            detectionResult = detectionResult,
+            cornerDisplacement = cornerDisplacement,
+            isAutoModeEnabled = isAutoModeEnabled
+        )
+
+        onAnalysisResult(smoothedQuad, detectionResult.confidence, autoState)
+
+        if (autoState.isReadyToCapture) {
+            onAutoCaptureTriggered()
+            autoCaptureEngine.reset()
+        }
+    }
+
+    private fun fallbackBitmapAnalysis(imageProxy: ImageProxy) {
+        val bitmap = imageProxyToBitmap(imageProxy)
+        if (bitmap != null) {
+            val detectionResult = DocumentDetector.detectDocument(bitmap)
+            bitmap.recycle()
+            processDetectionResult(detectionResult)
+        }
+    }
+
+    @OptIn(ExperimentalGetImage::class)
     private fun imageProxyToBitmap(imageProxy: ImageProxy): Bitmap? {
         val image = imageProxy.image ?: return null
         return try {
@@ -127,10 +159,10 @@ class DocumentImageAnalyzer(
         }
     }
 
-    private fun yuv420888ToNv21(image: ImageProxy): ByteArray {
-        val yPlane = image.planes[0]
-        val uPlane = image.planes[1]
-        val vPlane = image.planes[2]
+    private fun yuv420888ToNv21(imageProxy: ImageProxy): ByteArray {
+        val yPlane = imageProxy.planes[0]
+        val uPlane = imageProxy.planes[1]
+        val vPlane = imageProxy.planes[2]
 
         val yBuffer = yPlane.buffer
         val uBuffer = uPlane.buffer
@@ -140,19 +172,16 @@ class DocumentImageAnalyzer(
         val uSize = uBuffer.remaining()
         val vSize = vBuffer.remaining()
 
-        val nv21 = ByteArray(ySize + (image.width * image.height / 2))
+        val nv21 = ByteArray(ySize + (imageProxy.width * imageProxy.height / 2))
 
         yBuffer.get(nv21, 0, ySize)
 
         val pixelStride = uPlane.pixelStride
-        val rowStride = uPlane.rowStride
 
         var offset = ySize
         if (pixelStride == 2) {
-            // Interleaved UV plane
             vBuffer.get(nv21, offset, vSize)
         } else {
-            // Non-interleaved UV plane
             val uBytes = ByteArray(uSize)
             val vBytes = ByteArray(vSize)
             uBuffer.get(uBytes)

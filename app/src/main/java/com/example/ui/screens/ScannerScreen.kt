@@ -124,6 +124,7 @@ import com.example.cv.FilterType
 import com.example.cv.ImageEnhancer
 import com.example.cv.PerspectiveTransformer
 import com.example.cv.QuadPoints
+import com.example.ui.components.CropOverlayEditor
 import com.example.ui.theme.RedPrimary
 import com.example.ui.viewmodel.MainViewModel
 import com.example.util.PdfEngine
@@ -175,7 +176,7 @@ fun ScannerScreen(
 
     // Live CV detection states from analyzer
     var liveDetectedQuad by remember { mutableStateOf<QuadPoints?>(null) }
-    var autoCaptureState by remember { mutableStateOf(AutoCaptureState(0f, false, false, "Ready")) }
+    var autoCaptureState by remember { mutableStateOf(AutoCaptureState(0f, 0, false, false, "Ready")) }
 
     // Executor for real-time background analysis thread pool
     val analyzerExecutor = remember { Executors.newSingleThreadExecutor() }
@@ -241,10 +242,33 @@ fun ScannerScreen(
         label = "laser"
     )
 
+    // Shutter sound & capture flash animation
+    var isFlashAnimActive by remember { mutableStateOf(false) }
+    val mediaActionSound = remember {
+        try {
+            android.media.MediaActionSound().apply {
+                load(android.media.MediaActionSound.SHUTTER_CLICK)
+            }
+        } catch (e: Exception) { null }
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            try { mediaActionSound?.release() } catch (e: Exception) {}
+        }
+    }
+
     // Camera snap function
     val capturePage = {
         if (!isCapturing) {
             isCapturing = true
+            // Play shutter sound
+            try {
+                mediaActionSound?.play(android.media.MediaActionSound.SHUTTER_CLICK)
+            } catch (e: Exception) { e.printStackTrace() }
+
+            // Trigger visual flash animation
+            isFlashAnimActive = true
+
             val capture = imageCapture
             if (capture != null && hasCameraPermission) {
                 capture.takePicture(
@@ -267,6 +291,7 @@ fun ScannerScreen(
                                 isEditingMode = true
                             }
                             isCapturing = false
+                            isFlashAnimActive = false
                         }
 
                         override fun onError(exception: ImageCaptureException) {
@@ -276,6 +301,7 @@ fun ScannerScreen(
                             activePageIndex = scannedPages.size - 1
                             isEditingMode = true
                             isCapturing = false
+                            isFlashAnimActive = false
                         }
                     }
                 )
@@ -285,6 +311,7 @@ fun ScannerScreen(
                 activePageIndex = scannedPages.size - 1
                 isEditingMode = true
                 isCapturing = false
+                isFlashAnimActive = false
             }
         }
     }
@@ -546,6 +573,15 @@ fun ScannerScreen(
                             drawCircle(Color.White, radius = r * 0.5f, center = pt)
                         }
                     }
+                }
+
+                // Flash overlay animation when photo is captured
+                if (isFlashAnimActive) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.White.copy(alpha = 0.90f))
+                    )
                 }
 
                 // Top Header Controls
@@ -894,140 +930,13 @@ fun ScannerScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     if (activeBitmap != null) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color.Black),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Image(
-                                bitmap = activeBitmap.asImageBitmap(),
-                                contentDescription = "Scanned Page",
-                                modifier = Modifier.fillMaxSize()
-                            )
-
-                            Canvas(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .pointerInput(cropQuad) {
-                                        detectDragGestures { change, dragAmount ->
-                                            change.consume()
-                                            val w = size.width.toFloat()
-                                            val h = size.height.toFloat()
-                                            if (w <= 0 || h <= 0) return@detectDragGestures
-
-                                            val pos = change.position
-                                            val normPos = Offset(pos.x / w, pos.y / h)
-
-                                            val distTL = (normPos - cropQuad.topLeft).getDistance()
-                                            val distTR = (normPos - cropQuad.topRight).getDistance()
-                                            val distBR = (normPos - cropQuad.bottomRight).getDistance()
-                                            val distBL = (normPos - cropQuad.bottomLeft).getDistance()
-
-                                            val dxNorm = dragAmount.x / w
-                                            val dyNorm = dragAmount.y / h
-
-                                            when {
-                                                distTL < 0.15f -> {
-                                                    cropQuad = cropQuad.copy(
-                                                        topLeft = Offset(
-                                                            (cropQuad.topLeft.x + dxNorm).coerceIn(0f, cropQuad.topRight.x - 0.05f),
-                                                            (cropQuad.topLeft.y + dyNorm).coerceIn(0f, cropQuad.bottomLeft.y - 0.05f)
-                                                        )
-                                                    )
-                                                }
-                                                distTR < 0.15f -> {
-                                                    cropQuad = cropQuad.copy(
-                                                        topRight = Offset(
-                                                            (cropQuad.topRight.x + dxNorm).coerceIn(cropQuad.topLeft.x + 0.05f, 1f),
-                                                            (cropQuad.topRight.y + dyNorm).coerceIn(0f, cropQuad.bottomRight.y - 0.05f)
-                                                        )
-                                                    )
-                                                }
-                                                distBR < 0.15f -> {
-                                                    cropQuad = cropQuad.copy(
-                                                        bottomRight = Offset(
-                                                            (cropQuad.bottomRight.x + dxNorm).coerceIn(cropQuad.bottomLeft.x + 0.05f, 1f),
-                                                            (cropQuad.bottomRight.y + dyNorm).coerceIn(cropQuad.topRight.y + 0.05f, 1f)
-                                                        )
-                                                    )
-                                                }
-                                                distBL < 0.15f -> {
-                                                    cropQuad = cropQuad.copy(
-                                                        bottomLeft = Offset(
-                                                            (cropQuad.bottomLeft.x + dxNorm).coerceIn(0f, cropQuad.bottomRight.x - 0.05f),
-                                                            (cropQuad.bottomLeft.y + dyNorm).coerceIn(cropQuad.topLeft.y + 0.05f, 1f)
-                                                        )
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                            ) {
-                                val w = size.width
-                                val h = size.height
-
-                                val ptTL = Offset(cropQuad.topLeft.x * w, cropQuad.topLeft.y * h)
-                                val ptTR = Offset(cropQuad.topRight.x * w, cropQuad.topRight.y * h)
-                                val ptBR = Offset(cropQuad.bottomRight.x * w, cropQuad.bottomRight.y * h)
-                                val ptBL = Offset(cropQuad.bottomLeft.x * w, cropQuad.bottomLeft.y * h)
-
-                                // Connecting Quad Boundary Line
-                                val quadPath = Path().apply {
-                                    moveTo(ptTL.x, ptTL.y)
-                                    lineTo(ptTR.x, ptTR.y)
-                                    lineTo(ptBR.x, ptBR.y)
-                                    lineTo(ptBL.x, ptBL.y)
-                                    close()
-                                }
-                                drawPath(quadPath, color = Color(0xFF2196F3), style = Stroke(width = 3.dp.toPx()))
-
-                                // 4 Corner Drag Circles
-                                val cornerRadius = 14.dp.toPx()
-                                listOf(ptTL, ptTR, ptBR, ptBL).forEach { pt ->
-                                    drawCircle(Color(0xFF2196F3), radius = cornerRadius, center = pt)
-                                    drawCircle(Color.White.copy(alpha = 0.85f), radius = cornerRadius * 0.55f, center = pt)
-                                }
-
-                                // 4 Edge Bar Handles
-                                val edgeWidth = 32.dp.toPx()
-                                val edgeHeight = 10.dp.toPx()
-                                val barColor = Color(0xFF2196F3)
-
-                                val topMid = Offset((ptTL.x + ptTR.x) / 2f, (ptTL.y + ptTR.y) / 2f)
-                                drawRoundRect(
-                                    color = barColor,
-                                    topLeft = Offset(topMid.x - edgeWidth / 2f, topMid.y - edgeHeight / 2f),
-                                    size = Size(edgeWidth, edgeHeight),
-                                    cornerRadius = CornerRadius(4.dp.toPx())
-                                )
-
-                                val botMid = Offset((ptBL.x + ptBR.x) / 2f, (ptBL.y + ptBR.y) / 2f)
-                                drawRoundRect(
-                                    color = barColor,
-                                    topLeft = Offset(botMid.x - edgeWidth / 2f, botMid.y - edgeHeight / 2f),
-                                    size = Size(edgeWidth, edgeHeight),
-                                    cornerRadius = CornerRadius(4.dp.toPx())
-                                )
-
-                                val leftMid = Offset((ptTL.x + ptBL.x) / 2f, (ptTL.y + ptBL.y) / 2f)
-                                drawRoundRect(
-                                    color = barColor,
-                                    topLeft = Offset(leftMid.x - edgeHeight / 2f, leftMid.y - edgeWidth / 2f),
-                                    size = Size(edgeHeight, edgeWidth),
-                                    cornerRadius = CornerRadius(4.dp.toPx())
-                                )
-
-                                val rightMid = Offset((ptTR.x + ptBR.x) / 2f, (ptTR.y + ptBR.y) / 2f)
-                                drawRoundRect(
-                                    color = barColor,
-                                    topLeft = Offset(rightMid.x - edgeHeight / 2f, rightMid.y - edgeWidth / 2f),
-                                    size = Size(edgeHeight, edgeWidth),
-                                    cornerRadius = CornerRadius(4.dp.toPx())
-                                )
-                            }
-                        }
+                        CropOverlayEditor(
+                            bitmap = activeBitmap,
+                            cropQuad = cropQuad,
+                            onCropQuadChange = { newQuad -> cropQuad = newQuad },
+                            modifier = Modifier.fillMaxSize(),
+                            primaryColor = Color(0xFF2196F3)
+                        )
                     }
                 }
 

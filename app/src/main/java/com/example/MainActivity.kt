@@ -39,6 +39,7 @@ import com.example.ui.screens.ToolsListScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.viewmodel.MainViewModel
 import com.example.ui.viewmodel.ProcessingUiState
+import com.example.cv.OpenCVManager
 
 sealed class AppScreen {
     object Onboarding : AppScreen()
@@ -58,6 +59,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Initialize OpenCV SDK safely on app startup
+        OpenCVManager.init(this)
 
         setContent {
             val isDarkTheme by viewModel.isDarkTheme.collectAsState()
