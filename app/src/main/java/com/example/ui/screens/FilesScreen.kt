@@ -386,20 +386,6 @@ private fun FileItemCard(
                         fontSize = 12.sp,
                         color = Color(0xFF605D62)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(RedPrimary.copy(alpha = 0.1f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = pdf.category,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = RedPrimary
-                        )
-                    }
                 }
             }
 
