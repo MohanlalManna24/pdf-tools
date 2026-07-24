@@ -7,6 +7,7 @@ import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -55,6 +56,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -168,6 +171,7 @@ fun ToolDetailScreen(
     // Split PDF States
     var splitMode by remember { mutableStateOf("visual") } // "visual", "range", "presets"
     var splitRangeInput by remember { mutableStateOf("1-2") }
+    var saveAsSeparateFiles by remember { mutableStateOf(true) }
     var selectedPageIndices = remember { mutableStateListOf<Int>() }
     var totalLoadedPages by remember { mutableIntStateOf(1) }
     var loadedThumbnails by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
@@ -261,13 +265,14 @@ fun ToolDetailScreen(
                         val filePaths = selectedFiles.map { it.localPath }
                         val param = when(toolId) {
                             "split" -> {
-                                if (splitMode == "visual") {
+                                val rawParam = if (splitMode == "visual") {
                                     if (selectedPageIndices.isEmpty()) "1" else selectedPageIndices.sorted().joinToString(",")
                                 } else if (splitMode == "range") {
                                     splitRangeInput
                                 } else {
                                     "1-$totalLoadedPages"
                                 }
+                                if (saveAsSeparateFiles) "SEPARATE::$rawParam" else "COMBINED::$rawParam"
                             }
                             "delete" -> {
                                 val remaining = (1..totalLoadedPages).filterNot { selectedPageIndices.contains(it) }
@@ -511,6 +516,45 @@ fun ToolDetailScreen(
                                                 color = if (isSelected) Color.White else Color.DarkGray
                                             )
                                         }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                // Save as Separate Files Switch
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                                    border = BorderStroke(1.dp, WarmBorderLight)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "Save as Separate PDFs",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp
+                                            )
+                                            Text(
+                                                text = if (saveAsSeparateFiles) "Extracts into individual standalone PDF files" else "Combines extracted pages into 1 single PDF file",
+                                                fontSize = 11.sp,
+                                                color = Color.Gray
+                                            )
+                                        }
+                                        Switch(
+                                            checked = saveAsSeparateFiles,
+                                            onCheckedChange = { saveAsSeparateFiles = it },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = Color.White,
+                                                checkedTrackColor = RedPrimary
+                                            )
+                                        )
                                     }
                                 }
 

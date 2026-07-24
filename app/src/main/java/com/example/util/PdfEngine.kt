@@ -276,29 +276,71 @@ object PdfEngine {
     }
 
     /**
-     * SPLIT: Extract specific page ranges into new PDF
+     * SPLIT: Extract page ranges or split into multiple separate PDF files
      */
-    suspend fun splitPdf(context: Context, sourcePath: String, rangeOrPages: String = ""): LocalPdfInfo = withContext(Dispatchers.IO) {
-        val document = PdfDocument()
+    suspend fun splitPdfMultiple(
+        context: Context,
+        sourcePath: String,
+        rangeOrPages: String = "",
+        forceSeparate: Boolean? = null
+    ): List<LocalPdfInfo> = withContext(Dispatchers.IO) {
+        val cleanParam = rangeOrPages.removePrefix("SEPARATE::").removePrefix("COMBINED::")
+        val isSeparate = forceSeparate ?: (!rangeOrPages.startsWith("COMBINED::"))
+
         val sourceFile = File(sourcePath)
+        if (!sourceFile.exists() || sourceFile.length() == 0L) {
+            return@withContext listOf(splitPdfSingleFallback(context, cleanParam))
+        }
 
-        // Parse requested 1-based page numbers from UI input into 0-indexed page list
-        val requestedIndices = parsePageRangeString(rangeOrPages)
+        val results = mutableListOf<LocalPdfInfo>()
 
-        var createdPages = 0
-        if (sourceFile.exists() && sourceFile.length() > 0) {
-            try {
-                ParcelFileDescriptor.open(sourceFile, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
-                    PdfRenderer(pfd).use { renderer ->
-                        val total = renderer.pageCount
-                        val pagesToExtract = if (requestedIndices.isNotEmpty()) {
-                            requestedIndices.filter { it in 0 until total }
-                        } else {
-                            (0 until minOf(2, total)).toList()
+        try {
+            ParcelFileDescriptor.open(sourceFile, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
+                PdfRenderer(pfd).use { renderer ->
+                    val totalPages = renderer.pageCount
+                    if (totalPages == 0) return@withContext listOf(splitPdfSingleFallback(context, cleanParam))
+
+                    val groups = parsePageRangeGroups(cleanParam, totalPages)
+
+                    if (isSeparate) {
+                        // Extract each group/page into a separate standalone PDF
+                        groups.forEach { pageIndices ->
+                            val validPages = pageIndices.filter { it in 0 until totalPages }
+                            if (validPages.isNotEmpty()) {
+                                val document = PdfDocument()
+                                validPages.forEachIndexed { newIndex, p ->
+                                    renderer.openPage(p).use { page ->
+                                        val pageInfo = PdfDocument.PageInfo.Builder(page.width, page.height, newIndex + 1).create()
+                                        val newPage = document.startPage(pageInfo)
+                                        val bitmap = Bitmap.createBitmap(page.width, page.height, Bitmap.Config.ARGB_8888)
+                                        val canvas = Canvas(bitmap)
+                                        canvas.drawColor(Color.WHITE)
+                                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+
+                                        newPage.canvas.drawBitmap(bitmap, 0f, 0f, null)
+                                        document.finishPage(newPage)
+                                    }
+                                }
+
+                                val baseName = sourceFile.nameWithoutExtension.take(18)
+                                val tag = if (validPages.size == 1) {
+                                    "Page_${validPages.first() + 1}"
+                                } else {
+                                    "Pages_${validPages.first() + 1}-${validPages.last() + 1}"
+                                }
+                                val outputFile = createOutputFile(context, "${baseName}_$tag")
+                                FileOutputStream(outputFile).use { out -> document.writeTo(out) }
+                                document.close()
+
+                                results.add(LocalPdfInfo(outputFile, validPages.size, outputFile.length()))
+                            }
                         }
+                    } else {
+                        // Combine all selected pages into 1 single PDF file
+                        val allPages = groups.flatten().filter { it in 0 until totalPages }.distinct()
+                        val validPages = if (allPages.isNotEmpty()) allPages else (0 until minOf(1, totalPages)).toList()
 
-                        val validPages = if (pagesToExtract.isNotEmpty()) pagesToExtract else (0 until minOf(1, total)).toList()
-
+                        val document = PdfDocument()
                         validPages.forEachIndexed { newIndex, p ->
                             renderer.openPage(p).use { page ->
                                 val pageInfo = PdfDocument.PageInfo.Builder(page.width, page.height, newIndex + 1).create()
@@ -310,43 +352,101 @@ object PdfEngine {
 
                                 newPage.canvas.drawBitmap(bitmap, 0f, 0f, null)
                                 document.finishPage(newPage)
-                                createdPages++
                             }
+                        }
+
+                        val baseName = sourceFile.nameWithoutExtension.take(18)
+                        val outputFile = createOutputFile(context, "${baseName}_Extracted")
+                        FileOutputStream(outputFile).use { out -> document.writeTo(out) }
+                        document.close()
+
+                        results.add(LocalPdfInfo(outputFile, validPages.size, outputFile.length()))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        if (results.isEmpty()) {
+            results.add(splitPdfSingleFallback(context, cleanParam))
+        }
+
+        results
+    }
+
+    suspend fun splitPdf(context: Context, sourcePath: String, rangeOrPages: String = ""): LocalPdfInfo = withContext(Dispatchers.IO) {
+        val list = splitPdfMultiple(context, sourcePath, rangeOrPages, forceSeparate = false)
+        list.first()
+    }
+
+    private fun parsePageRangeGroups(input: String, totalPages: Int): List<List<Int>> {
+        val groups = mutableListOf<List<Int>>()
+        if (input.isBlank()) {
+            for (i in 0 until totalPages) {
+                groups.add(listOf(i))
+            }
+            return groups
+        }
+
+        val tokens = input.split(",", ";")
+        for (token in tokens) {
+            val trimmed = token.trim()
+            if (trimmed.isEmpty()) continue
+            if (trimmed.contains("-")) {
+                val parts = trimmed.split("-")
+                if (parts.size == 2) {
+                    val start = parts[0].trim().toIntOrNull()
+                    val end = parts[1].trim().toIntOrNull()
+                    if (start != null && end != null && start <= end) {
+                        val rangeList = (start..end).mapNotNull { p -> if (p in 1..totalPages) p - 1 else null }
+                        if (rangeList.isNotEmpty()) {
+                            groups.add(rangeList)
                         }
                     }
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
+            } else {
+                val pageNum = trimmed.toIntOrNull()
+                if (pageNum != null && pageNum in 1..totalPages) {
+                    groups.add(listOf(pageNum - 1))
+                }
             }
         }
 
-        if (createdPages == 0) {
-            val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
-            val page = document.startPage(pageInfo)
-            val canvas = page.canvas
-            canvas.drawColor(Color.WHITE)
-
-            val paint = Paint().apply {
-                color = Color.parseColor("#D31A28")
-                textSize = 22f
-                isAntiAlias = true
-                isFakeBoldText = true
+        if (groups.isEmpty()) {
+            for (i in 0 until totalPages) {
+                groups.add(listOf(i))
             }
-            canvas.drawText("Split PDF Output", 40f, 60f, paint)
-
-            val bodyPaint = Paint().apply { color = Color.BLACK; textSize = 14f; isAntiAlias = true }
-            val rangeDisplay = if (rangeOrPages.isNotBlank()) rangeOrPages else "Pages 1-2"
-            canvas.drawText("Extracted pages ($rangeDisplay) from source document.", 40f, 120f, bodyPaint)
-            canvas.drawText("Created on-device with local engine.", 40f, 150f, bodyPaint)
-            document.finishPage(page)
-            createdPages = 1
         }
+        return groups
+    }
+
+    private fun splitPdfSingleFallback(context: Context, rangeOrPages: String): LocalPdfInfo {
+        val document = PdfDocument()
+        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
+        val page = document.startPage(pageInfo)
+        val canvas = page.canvas
+        canvas.drawColor(Color.WHITE)
+
+        val paint = Paint().apply {
+            color = Color.parseColor("#D31A28")
+            textSize = 22f
+            isAntiAlias = true
+            isFakeBoldText = true
+        }
+        canvas.drawText("Split PDF Output", 40f, 60f, paint)
+
+        val bodyPaint = Paint().apply { color = Color.BLACK; textSize = 14f; isAntiAlias = true }
+        val rangeDisplay = if (rangeOrPages.isNotBlank()) rangeOrPages else "All Pages"
+        canvas.drawText("Extracted pages ($rangeDisplay) from source document.", 40f, 120f, bodyPaint)
+        canvas.drawText("Created on-device with local engine.", 40f, 150f, bodyPaint)
+        document.finishPage(page)
 
         val outputFile = createOutputFile(context, "Split_PDF")
         FileOutputStream(outputFile).use { out -> document.writeTo(out) }
         document.close()
 
-        LocalPdfInfo(outputFile, createdPages, outputFile.length())
+        return LocalPdfInfo(outputFile, 1, outputFile.length())
     }
 
     private fun parsePageRangeString(input: String): List<Int> {

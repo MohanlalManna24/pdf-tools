@@ -230,6 +230,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             try {
                 val context = getApplication<Application>()
+
+                if (toolId == "split") {
+                    val firstPath = titlesOrPaths.firstOrNull() ?: ""
+                    val pdfResults = PdfEngine.splitPdfMultiple(context, firstPath, extraParam)
+
+                    val savedEntities = mutableListOf<PdfEntity>()
+                    pdfResults.forEach { resultInfo ->
+                        val sizeKB = (resultInfo.sizeBytes / 1024).coerceAtLeast(45)
+                        val sizeFormatted = if (sizeKB > 1024) "${String.format("%.1f", sizeKB / 1024.0)} MB" else "$sizeKB KB"
+
+                        val newEntity = PdfEntity(
+                            title = resultInfo.file.name,
+                            path = resultInfo.file.absolutePath,
+                            sizeFormatted = sizeFormatted,
+                            sizeBytes = resultInfo.sizeBytes,
+                            pageCount = resultInfo.pageCount,
+                            dateModifiedFormatted = "Just now",
+                            timestamp = System.currentTimeMillis(),
+                            category = "SPLIT"
+                        )
+                        val id = repository.insertPdf(newEntity)
+                        savedEntities.add(newEntity.copy(id = id.toInt()))
+                    }
+
+                    val primaryEntity = savedEntities.firstOrNull() ?: savedEntities.last()
+                    _activePdf.value = primaryEntity
+
+                    val summaryTitle = if (savedEntities.size > 1) {
+                        "Split into ${savedEntities.size} Separate PDFs"
+                    } else {
+                        primaryEntity.title
+                    }
+
+                    _processingState.value = ProcessingUiState.Success(
+                        title = summaryTitle,
+                        path = primaryEntity.path,
+                        sizeFormatted = "${savedEntities.sumOf { (it.sizeBytes / 1024).toInt() }} KB Total",
+                        pageCount = savedEntities.sumOf { it.pageCount },
+                        createdEntity = primaryEntity
+                    )
+                    return@launch
+                }
+
                 val resultInfo: com.example.util.LocalPdfInfo
                 val displayTitle: String
 
@@ -237,12 +280,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     "merge" -> {
                         resultInfo = PdfEngine.mergePdfs(context, titlesOrPaths)
                         displayTitle = "Merged_Document_${System.currentTimeMillis().toString().takeLast(4)}.pdf"
-                    }
-                    "split" -> {
-                        val firstPath = titlesOrPaths.firstOrNull() ?: ""
-                        resultInfo = PdfEngine.splitPdf(context, firstPath, extraParam)
-                        val safeRangeTag = if (extraParam.isNotBlank()) extraParam.replace(" ", "").replace(",", "_") else "Extracted"
-                        displayTitle = "Split_Doc_$safeRangeTag.pdf"
                     }
                     "compress" -> {
                         val firstPath = titlesOrPaths.firstOrNull() ?: ""
@@ -256,12 +293,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     "delete" -> {
                         val firstPath = titlesOrPaths.firstOrNull() ?: ""
-                        resultInfo = PdfEngine.splitPdf(context, firstPath, extraParam)
+                        val pdfResults = PdfEngine.splitPdfMultiple(context, firstPath, extraParam, forceSeparate = false)
+                        resultInfo = pdfResults.first()
                         displayTitle = "Trimmed_Doc_${System.currentTimeMillis().toString().takeLast(4)}.pdf"
                     }
                     "rearrange" -> {
                         val firstPath = titlesOrPaths.firstOrNull() ?: ""
-                        resultInfo = PdfEngine.splitPdf(context, firstPath, extraParam)
+                        val pdfResults = PdfEngine.splitPdfMultiple(context, firstPath, extraParam, forceSeparate = false)
+                        resultInfo = pdfResults.first()
                         displayTitle = "Reordered_Doc_${System.currentTimeMillis().toString().takeLast(4)}.pdf"
                     }
                     "password" -> {
