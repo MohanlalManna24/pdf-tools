@@ -67,6 +67,7 @@ class MainActivity : ComponentActivity() {
             val isDarkTheme by viewModel.isDarkTheme.collectAsState()
             val processingState by viewModel.processingState.collectAsState()
             val activePdf by viewModel.activePdf.collectAsState()
+            val allPdfs by viewModel.allFiles.collectAsState()
 
             var currentScreen by remember { mutableStateOf<AppScreen>(AppScreen.MainTab(NavTab.HOME)) }
             var currentTab by remember { mutableStateOf(NavTab.HOME) }
@@ -228,6 +229,8 @@ class MainActivity : ComponentActivity() {
                                         is AppScreen.ToolDetail -> {
                                             ToolDetailScreen(
                                                 toolId = targetScreen.toolId,
+                                                activePdf = activePdf,
+                                                allPdfs = allPdfs,
                                                 onBack = { currentScreen = AppScreen.MainTab(currentTab) },
                                                 onExecuteTool = { titles, param ->
                                                     viewModel.executeTool(targetScreen.toolId, titles, param)
@@ -276,6 +279,9 @@ class MainActivity : ComponentActivity() {
                                                 },
                                                 onToggleFavorite = { targetPdf ->
                                                     viewModel.toggleFavorite(targetPdf)
+                                                },
+                                                onOpenTool = { toolId ->
+                                                    currentScreen = AppScreen.ToolDetail(toolId)
                                                 }
                                             )
                                         }

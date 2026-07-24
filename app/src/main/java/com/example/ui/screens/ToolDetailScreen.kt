@@ -80,6 +80,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.db.PdfEntity
 import com.example.ui.components.AddMoreFilesCard
 import com.example.ui.components.SelectedFileListItem
 import com.example.ui.theme.RedPrimary
@@ -102,11 +103,31 @@ data class SelectedFileModel(
 @Composable
 fun ToolDetailScreen(
     toolId: String,
+    activePdf: PdfEntity? = null,
+    allPdfs: List<PdfEntity> = emptyList(),
     onBack: () -> Unit,
     onExecuteTool: (titlesOrPaths: List<String>, extraParam: String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+
+    // Delegate "delete" and "rearrange" tools directly to PageManagerScreen
+    if (toolId == "delete" || toolId == "rearrange") {
+        val initialPath = activePdf?.path
+        val initialTitle = activePdf?.title
+        PageManagerScreen(
+            toolMode = toolId,
+            initialFilePath = initialPath,
+            documentTitle = initialTitle,
+            allPdfs = allPdfs,
+            onBack = onBack,
+            onSavePdf = { sourcePath, pageSequenceParam ->
+                onExecuteTool(listOf(sourcePath), pageSequenceParam)
+            },
+            modifier = modifier
+        )
+        return
+    }
 
     val toolTitle = when(toolId) {
         "merge" -> "Merge PDF"

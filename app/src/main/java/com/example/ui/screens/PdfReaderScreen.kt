@@ -129,6 +129,7 @@ fun PdfReaderScreen(
     onRenamePdf: ((PdfEntity, String) -> Unit)? = null,
     onDeletePdf: ((PdfEntity) -> Unit)? = null,
     onToggleFavorite: ((PdfEntity) -> Unit)? = null,
+    onOpenTool: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -472,6 +473,24 @@ fun PdfReaderScreen(
                                     leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = RedPrimary) }
                                 )
                             }
+
+                            DropdownMenuItem(
+                                text = { Text("Delete Pages from File") },
+                                onClick = {
+                                    showMenu = false
+                                    onOpenTool?.invoke("delete")
+                                },
+                                leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = RedPrimary) }
+                            )
+
+                            DropdownMenuItem(
+                                text = { Text("Rearrange Page Sequence") },
+                                onClick = {
+                                    showMenu = false
+                                    onOpenTool?.invoke("rearrange")
+                                },
+                                leadingIcon = { Icon(Icons.Filled.SwapHoriz, contentDescription = null, tint = Color.DarkGray) }
+                            )
 
                             DropdownMenuItem(
                                 text = { Text("Jump to Page") },
