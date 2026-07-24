@@ -60,6 +60,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.theme.ChipAmberBg
@@ -182,7 +183,15 @@ fun ToolsListScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("tools_search_input"),
-                    placeholder = { Text("Search tools (e.g. merge, compress, scan)...", color = Color(0xFF8E8E93), fontSize = 14.sp) },
+                    placeholder = { 
+                        Text(
+                            text = "Search tools...", 
+                            color = Color(0xFF8E8E93), 
+                            fontSize = 14.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        ) 
+                    },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Filled.Search,
@@ -203,6 +212,7 @@ fun ToolsListScreen(
                         }
                     },
                     singleLine = true,
+                    maxLines = 1,
                     shape = RoundedCornerShape(18.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = Color(0xFFFFF2F2),

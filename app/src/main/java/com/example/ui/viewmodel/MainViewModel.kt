@@ -517,7 +517,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveScannedPdf(
         bitmaps: List<Bitmap>,
-        filterName: String = "Magic Color",
         customTitle: String? = null,
         onSuccess: (PdfEntity) -> Unit = {}
     ) {
@@ -525,13 +524,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _processingState.value = ProcessingUiState.Processing("Generating Scanned PDF...", 0.2f)
             try {
                 val context = getApplication<Application>()
-                val filterType = FilterType.entries.find { it.displayName.equals(filterName, ignoreCase = true) } ?: FilterType.MAGIC_COLOR
-                val processedBitmaps = bitmaps.map { bitmap ->
-                    ImageEnhancer.applyFilter(bitmap, filterType)
-                }
-
                 _processingState.value = ProcessingUiState.Processing("Compiling document pages...", 0.6f)
-                val resultInfo = PdfEngine.convertImagesToPdf(context, processedBitmaps)
+                val resultInfo = PdfEngine.convertImagesToPdf(context, bitmaps)
                 val sizeKB = (resultInfo.sizeBytes / 1024).coerceAtLeast(30)
                 val sizeFormatted = if (sizeKB > 1024) "${String.format("%.1f", sizeKB / 1024.0)} MB" else "$sizeKB KB"
 

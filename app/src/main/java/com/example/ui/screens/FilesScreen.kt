@@ -214,7 +214,15 @@ fun FilesScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("files_search_input"),
-                    placeholder = { Text("Search files by title or category...", color = Color(0xFF8E8E93), fontSize = 14.sp) },
+                    placeholder = { 
+                        Text(
+                            text = "Search files...", 
+                            color = Color(0xFF8E8E93), 
+                            fontSize = 14.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        ) 
+                    },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Filled.Search,
@@ -235,6 +243,7 @@ fun FilesScreen(
                         }
                     },
                     singleLine = true,
+                    maxLines = 1,
                     shape = RoundedCornerShape(18.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = Color(0xFFFFF2F2),

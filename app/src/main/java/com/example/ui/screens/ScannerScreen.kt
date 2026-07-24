@@ -50,13 +50,14 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.CropFree
@@ -171,7 +172,6 @@ fun ScannerScreen(
     var isFlashOn by remember { mutableStateOf(false) }
     var scanMode by remember { mutableStateOf(ScanMode.MANUAL) }
     var scanDocType by remember { mutableStateOf("Document") }
-    var selectedFilter by remember { mutableStateOf("Magic Color") }
     var isCapturing by remember { mutableStateOf(false) }
 
     // Live CV detection states from analyzer
@@ -908,15 +908,34 @@ fun ScannerScreen(
                         Icon(Icons.Filled.Edit, contentDescription = "Rename", tint = Color.LightGray, modifier = Modifier.size(16.dp))
                     }
 
-                    IconButton(
-                        onClick = {
-                            if (activeBitmap != null) {
-                                scannedPages[activePageIndex] = ImageEnhancer.applyMagicColor(activeBitmap)
-                                Toast.makeText(context, "Magic Color Applied!", Toast.LENGTH_SHORT).show()
-                            }
+                    // Page Counter & Action Header
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFF2196F3).copy(alpha = 0.2f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2196F3))
+                        ) {
+                            Text(
+                                text = "Page ${activePageIndex + 1} of ${scannedPages.size.coerceAtLeast(1)}",
+                                color = Color(0xFF2196F3),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
                         }
-                    ) {
-                        Icon(Icons.Filled.AutoAwesome, contentDescription = "Magic", tint = Color.White)
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        IconButton(
+                            onClick = {
+                                if (activeBitmap != null) {
+                                    scannedPages[activePageIndex] = ImageEnhancer.applyMagicColor(activeBitmap)
+                                    Toast.makeText(context, "Magic Contrast Enhanced!", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Filled.AutoAwesome, contentDescription = "Enhance", tint = Color.White)
+                        }
                     }
                 }
 
@@ -926,7 +945,7 @@ fun ScannerScreen(
                         .fillMaxWidth()
                         .weight(1f)
                         .background(Color(0xFF282828))
-                        .padding(16.dp),
+                        .padding(12.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     if (activeBitmap != null) {
@@ -940,11 +959,79 @@ fun ScannerScreen(
                     }
                 }
 
+                // Multi-Page Navigation Thumbnail Carousel Strip
+                if (scannedPages.size > 1) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF181818))
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = "Pages:",
+                            color = Color.LightGray,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            itemsIndexed(scannedPages) { index, pageBmp ->
+                                val isSelected = (index == activePageIndex)
+                                Box(
+                                    modifier = Modifier
+                                        .size(width = 38.dp, height = 50.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .border(
+                                            width = if (isSelected) 2.5.dp else 1.dp,
+                                            color = if (isSelected) Color(0xFF2196F3) else Color.Gray,
+                                            shape = RoundedCornerShape(6.dp)
+                                        )
+                                        .clickable {
+                                            activePageIndex = index
+                                            val detection = DocumentDetector.detectDocument(scannedPages[index])
+                                            cropQuad = detection.quad ?: QuadPoints(
+                                                Offset(0.05f, 0.05f),
+                                                Offset(0.95f, 0.05f),
+                                                Offset(0.95f, 0.95f),
+                                                Offset(0.05f, 0.95f)
+                                            )
+                                        }
+                                ) {
+                                    Image(
+                                        bitmap = pageBmp.asImageBitmap(),
+                                        contentDescription = "Page ${index + 1}",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .background(if (isSelected) Color(0xFF2196F3) else Color.Black.copy(alpha = 0.7f))
+                                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                                    ) {
+                                        Text(
+                                            text = "${index + 1}",
+                                            color = Color.White,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Action Overlay Pill Buttons
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 8.dp),
+                        .padding(horizontal = 24.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.Center
                 ) {
                     // Auto-detect Button
@@ -1080,24 +1167,19 @@ fun ScannerScreen(
                         Text("Edit text", color = Color.White, fontSize = 11.sp)
                     }
 
-                    // Filters Cycle
+                    // Enhance (Auto-Contrast)
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.clickable {
                             if (activeBitmap != null) {
-                                val filterTypes = FilterType.entries.toTypedArray()
-                                val currentIdx = filterTypes.indexOfFirst { it.displayName.equals(selectedFilter, ignoreCase = true) }
-                                val nextIdx = if (currentIdx == -1) 0 else (currentIdx + 1) % filterTypes.size
-                                val nextFilter = filterTypes[nextIdx]
-                                selectedFilter = nextFilter.displayName
-                                scannedPages[activePageIndex] = ImageEnhancer.applyFilter(activeBitmap, nextFilter)
-                                Toast.makeText(context, "Filter: ${nextFilter.displayName}", Toast.LENGTH_SHORT).show()
+                                scannedPages[activePageIndex] = ImageEnhancer.applyMagicColor(activeBitmap)
+                                Toast.makeText(context, "Magic Contrast Applied!", Toast.LENGTH_SHORT).show()
                             }
                         }
                     ) {
-                        Icon(Icons.Filled.ColorLens, contentDescription = "Filters", tint = Color.White, modifier = Modifier.size(22.dp))
+                        Icon(Icons.Filled.AutoFixHigh, contentDescription = "Enhance", tint = Color.White, modifier = Modifier.size(22.dp))
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text("Filters", color = Color.White, fontSize = 11.sp)
+                        Text("Enhance", color = Color.White, fontSize = 11.sp)
                     }
 
                     // Delete
@@ -1148,7 +1230,6 @@ fun ScannerScreen(
 
                                 viewModel.saveScannedPdf(
                                     bitmaps = croppedList,
-                                    filterName = selectedFilter,
                                     customTitle = if (documentTitle.endsWith(".pdf", ignoreCase = true)) documentTitle else "$documentTitle.pdf",
                                     onSuccess = {
                                         Toast.makeText(context, "Saved $documentTitle.pdf successfully!", Toast.LENGTH_SHORT).show()
