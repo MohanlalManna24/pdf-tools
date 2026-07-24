@@ -732,7 +732,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(2.dp))
 
                 Text(
-                    text = "Version 2.4.1 (Build 4402)",
+                    text = "Version 1.0",
                     fontSize = 13.sp,
                     color = Color(0xFF605D62)
                 )
@@ -740,7 +740,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 Text(
-                    text = "© 2024 PDF Tools Inc.",
+                    text = "© 2026 PDF Tools, developed by Mohanlal.",
                     fontSize = 12.sp,
                     color = Color(0xFF757575)
                 )
