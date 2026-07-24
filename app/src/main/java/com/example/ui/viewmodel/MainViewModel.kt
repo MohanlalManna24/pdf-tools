@@ -29,6 +29,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+import com.example.cv.FilterType
+import com.example.cv.ImageEnhancer
+
 sealed interface ProcessingUiState {
     object Idle : ProcessingUiState
     data class Processing(val toolName: String, val progress: Float) : ProcessingUiState
@@ -360,15 +363,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _processingState.value = ProcessingUiState.Processing("Generating Scanned PDF...", 0.2f)
             try {
                 val context = getApplication<Application>()
+                val filterType = FilterType.entries.find { it.displayName.equals(filterName, ignoreCase = true) } ?: FilterType.MAGIC_COLOR
                 val processedBitmaps = bitmaps.map { bitmap ->
-                    when (filterName) {
-                        "Magic Color" -> applyMagicColorFilter(bitmap)
-                        "B&W" -> applyBWFilter(bitmap)
-                        "Grayscale" -> applyGrayscaleFilter(bitmap)
-                        "Warm Paper" -> applyWarmPaperFilter(bitmap)
-                        "Invert" -> applyInvertFilter(bitmap)
-                        else -> bitmap
-                    }
+                    ImageEnhancer.applyFilter(bitmap, filterType)
                 }
 
                 _processingState.value = ProcessingUiState.Processing("Compiling document pages...", 0.6f)

@@ -6,16 +6,16 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas as AndroidCanvas
-import android.graphics.ColorMatrix
-import android.graphics.ColorMatrixColorFilter
 import android.graphics.Matrix
 import android.graphics.Paint as AndroidPaint
 import android.net.Uri
+import android.util.Size as AndroidSize
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraControl
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
@@ -40,7 +40,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -51,13 +50,11 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.ContentCopy
@@ -76,12 +73,10 @@ import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material.icons.filled.TextFields
-import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -92,12 +87,9 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -106,8 +98,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -125,25 +117,24 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.example.analyzer.DocumentImageAnalyzer
+import com.example.cv.AutoCaptureState
+import com.example.cv.DocumentDetector
+import com.example.cv.FilterType
+import com.example.cv.ImageEnhancer
+import com.example.cv.PerspectiveTransformer
+import com.example.cv.QuadPoints
 import com.example.ui.theme.RedPrimary
 import com.example.ui.viewmodel.MainViewModel
 import com.example.util.PdfEngine
-import kotlinx.coroutines.delay
 import java.io.InputStream
 import java.nio.ByteBuffer
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.Executors
 
 enum class ScanMode { MANUAL, AUTO }
-
-// Data class representing 4 normalized quad points (0f..1f range relative to image)
-data class QuadPoints(
-    var topLeft: Offset,
-    var topRight: Offset,
-    var bottomRight: Offset,
-    var bottomLeft: Offset
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -156,7 +147,7 @@ fun ScannerScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // Camera permission state
+    // Camera permission
     var hasCameraPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
@@ -173,7 +164,7 @@ fun ScannerScreen(
         }
     )
 
-    // Camera controls
+    // Camera controls & CV state
     var cameraControl by remember { mutableStateOf<CameraControl?>(null) }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     var isFlashOn by remember { mutableStateOf(false) }
@@ -182,10 +173,17 @@ fun ScannerScreen(
     var selectedFilter by remember { mutableStateOf("Magic Color") }
     var isCapturing by remember { mutableStateOf(false) }
 
+    // Live CV detection states from analyzer
+    var liveDetectedQuad by remember { mutableStateOf<QuadPoints?>(null) }
+    var autoCaptureState by remember { mutableStateOf(AutoCaptureState(0f, false, false, "Ready")) }
+
+    // Executor for real-time background analysis thread pool
+    val analyzerExecutor = remember { Executors.newSingleThreadExecutor() }
+
     // Multi-page document state
     val scannedPages = remember { mutableStateListOf<Bitmap>() }
     var activePageIndex by remember { mutableIntStateOf(0) }
-    var isEditingMode by remember { mutableStateOf(false) } // False = Camera View (Image 1), True = Crop Editor View (Image 2)
+    var isEditingMode by remember { mutableStateOf(false) }
 
     val defaultTitle = remember {
         val dateStr = SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date())
@@ -195,7 +193,6 @@ fun ScannerScreen(
 
     // Dialog & Sheet States
     var showRenameDialog by remember { mutableStateOf(false) }
-    var showFilterSheet by remember { mutableStateOf(false) }
     var showOcrSheet by remember { mutableStateOf(false) }
     var ocrExtractedText by remember { mutableStateOf("") }
     var isOcrLoading by remember { mutableStateOf(false) }
@@ -212,7 +209,7 @@ fun ScannerScreen(
                     scannedPages.add(bitmap)
                     activePageIndex = scannedPages.size - 1
                     isEditingMode = true
-                    Toast.makeText(context, "Imported page from gallery", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Imported document page from gallery", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
                 Toast.makeText(context, "Failed to load image: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -220,18 +217,19 @@ fun ScannerScreen(
         }
     }
 
-    // Quad Crop Points State for active editing page (Normalized 0f..1f)
+    // Quad Crop Points State for active editing page
     var cropQuad by remember(activePageIndex, isEditingMode, scannedPages.size) {
         mutableStateOf(
             if (scannedPages.isNotEmpty() && activePageIndex in scannedPages.indices) {
-                detectTightDocumentQuad(scannedPages[activePageIndex])
+                val detection = DocumentDetector.detectDocument(scannedPages[activePageIndex])
+                detection.quad ?: QuadPoints(Offset(0.05f, 0.05f), Offset(0.95f, 0.05f), Offset(0.95f, 0.95f), Offset(0.05f, 0.95f))
             } else {
                 QuadPoints(Offset(0.05f, 0.05f), Offset(0.95f, 0.05f), Offset(0.95f, 0.95f), Offset(0.05f, 0.95f))
             }
         )
     }
 
-    // Laser Animation for Viewfinder
+    // Viewfinder Laser Animation
     val infiniteTransition = rememberInfiniteTransition(label = "scan_laser")
     val laserY by infiniteTransition.animateFloat(
         initialValue = 0.12f,
@@ -243,7 +241,7 @@ fun ScannerScreen(
         label = "laser"
     )
 
-    // Function to snap photo
+    // Camera snap function
     val capturePage = {
         if (!isCapturing) {
             isCapturing = true
@@ -258,14 +256,14 @@ fun ScannerScreen(
                             if (bitmap != null) {
                                 scannedPages.add(bitmap)
                                 activePageIndex = scannedPages.size - 1
-                                cropQuad = detectTightDocumentQuad(bitmap)
+                                val detection = DocumentDetector.detectDocument(bitmap)
+                                cropQuad = detection.quad ?: QuadPoints(Offset(0.05f, 0.05f), Offset(0.95f, 0.05f), Offset(0.95f, 0.95f), Offset(0.05f, 0.95f))
                                 isEditingMode = true
-                                Toast.makeText(context, "Document Captured! Trim Edges", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Document Captured!", Toast.LENGTH_SHORT).show()
                             } else {
                                 val fallback = generateDocumentBitmap(context, scannedPages.size + 1)
                                 scannedPages.add(fallback)
                                 activePageIndex = scannedPages.size - 1
-                                cropQuad = detectTightDocumentQuad(fallback)
                                 isEditingMode = true
                             }
                             isCapturing = false
@@ -276,7 +274,6 @@ fun ScannerScreen(
                             val fallback = generateDocumentBitmap(context, scannedPages.size + 1)
                             scannedPages.add(fallback)
                             activePageIndex = scannedPages.size - 1
-                            cropQuad = detectTightDocumentQuad(fallback)
                             isEditingMode = true
                             isCapturing = false
                         }
@@ -286,7 +283,6 @@ fun ScannerScreen(
                 val fallback = generateDocumentBitmap(context, scannedPages.size + 1)
                 scannedPages.add(fallback)
                 activePageIndex = scannedPages.size - 1
-                cropQuad = detectTightDocumentQuad(fallback)
                 isEditingMode = true
                 isCapturing = false
             }
@@ -341,7 +337,7 @@ fun ScannerScreen(
                             .height(180.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("Extracting text from page...", color = Color.LightGray)
+                        Text("Extracting text from document...", color = Color.LightGray)
                     }
                 } else {
                     OutlinedTextField(
@@ -403,7 +399,7 @@ fun ScannerScreen(
     ) {
         if (!isEditingMode) {
             // ==========================================
-            // VIEW 1: CAMERA CAPTURE MODE (Ref Image 1)
+            // VIEW 1: LIVE CAMERA SCANNER MODE
             // ==========================================
             if (hasCameraPermission) {
                 DisposableEffect(lifecycleOwner) {
@@ -417,7 +413,7 @@ fun ScannerScreen(
                     }
                 }
 
-                // Live Camera Preview
+                // Live CameraX Preview + Computer Vision Analyzer
                 AndroidView(
                     factory = { ctx ->
                         val previewView = PreviewView(ctx).apply {
@@ -435,13 +431,31 @@ fun ScannerScreen(
                                     .build()
                                 imageCapture = capture
 
+                                val imageAnalysis = ImageAnalysis.Builder()
+                                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                                    .setTargetResolution(AndroidSize(640, 480))
+                                    .build()
+
+                                val analyzer = DocumentImageAnalyzer(
+                                    isAutoModeEnabled = (scanMode == ScanMode.AUTO),
+                                    onAnalysisResult = { quad, _, autoCapture ->
+                                        liveDetectedQuad = quad
+                                        autoCaptureState = autoCapture
+                                    },
+                                    onAutoCaptureTriggered = {
+                                        capturePage()
+                                    }
+                                )
+                                imageAnalysis.setAnalyzer(analyzerExecutor, analyzer)
+
                                 val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
                                 cameraProvider.unbindAll()
                                 val camera = cameraProvider.bindToLifecycle(
                                     lifecycleOwner,
                                     cameraSelector,
                                     preview,
-                                    capture
+                                    capture,
+                                    imageAnalysis
                                 )
                                 cameraControl = camera.cameraControl
                             } catch (e: Exception) {
@@ -453,7 +467,7 @@ fun ScannerScreen(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // Laser Overlay & Document Bounds Canvas
+                // Laser Viewfinder Overlay & Real-time Green Quad Detection Highlight
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val w = size.width
                     val h = size.height
@@ -469,7 +483,7 @@ fun ScannerScreen(
                     val strokeW = 4.5.dp.toPx()
                     val cornerColor = Color(0xFF2196F3)
 
-                    // 4 Corner Brackets
+                    // Standard 4 Corner Brackets
                     drawPath(
                         path = Path().apply {
                             moveTo(left, top + cornerLen); lineTo(left, top); lineTo(left + cornerLen, top)
@@ -495,7 +509,7 @@ fun ScannerScreen(
                         color = cornerColor, style = Stroke(width = strokeW)
                     )
 
-                    // Laser Line
+                    // Laser Scanning Line
                     val currentLaserY = top + (boxH * laserY)
                     drawLine(
                         color = cornerColor.copy(alpha = 0.85f),
@@ -503,9 +517,38 @@ fun ScannerScreen(
                         end = Offset(right - 10f, currentLaserY),
                         strokeWidth = 3.dp.toPx()
                     )
+
+                    // Real-Time Smoothed Green Document Boundary Overlay
+                    val quad = liveDetectedQuad
+                    if (quad != null) {
+                        val ptTL = Offset(quad.topLeft.x * w, quad.topLeft.y * h)
+                        val ptTR = Offset(quad.topRight.x * w, quad.topRight.y * h)
+                        val ptBR = Offset(quad.bottomRight.x * w, quad.bottomRight.y * h)
+                        val ptBL = Offset(quad.bottomLeft.x * w, quad.bottomLeft.y * h)
+
+                        val docPath = Path().apply {
+                            moveTo(ptTL.x, ptTL.y)
+                            lineTo(ptTR.x, ptTR.y)
+                            lineTo(ptBR.x, ptBR.y)
+                            lineTo(ptBL.x, ptBL.y)
+                            close()
+                        }
+
+                        // High contrast green document highlight border
+                        val greenBorderColor = Color(0xFF00E676)
+                        drawPath(docPath, color = greenBorderColor.copy(alpha = 0.22f))
+                        drawPath(docPath, color = greenBorderColor, style = Stroke(width = 3.5.dp.toPx()))
+
+                        // Corner circles
+                        val r = 10.dp.toPx()
+                        listOf(ptTL, ptTR, ptBR, ptBL).forEach { pt ->
+                            drawCircle(greenBorderColor, radius = r, center = pt)
+                            drawCircle(Color.White, radius = r * 0.5f, center = pt)
+                        }
+                    }
                 }
 
-                // Top Header Controls (Ref Image 1)
+                // Top Header Controls
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -533,7 +576,7 @@ fun ScannerScreen(
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         IconButton(
-                            onClick = { Toast.makeText(context, "AI Magic Scan Active", Toast.LENGTH_SHORT).show() },
+                            onClick = { Toast.makeText(context, "AI Computer Vision Active", Toast.LENGTH_SHORT).show() },
                             modifier = Modifier
                                 .size(40.dp)
                                 .clip(CircleShape)
@@ -554,7 +597,38 @@ fun ScannerScreen(
                     }
                 }
 
-                // Camera Bottom Overlay Area (Ref Image 1)
+                // Auto Mode Status Banner & Progress Indicator
+                if (scanMode == ScanMode.AUTO && autoCaptureState.isHolding) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color.Black.copy(alpha = 0.8f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E676)),
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 80.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                progress = { autoCaptureState.progress },
+                                modifier = Modifier.size(20.dp),
+                                color = Color(0xFF00E676),
+                                strokeWidth = 3.dp
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = autoCaptureState.statusMessage,
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                // Camera Bottom Control Area
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -562,7 +636,7 @@ fun ScannerScreen(
                         .navigationBarsPadding()
                         .padding(bottom = 12.dp)
                 ) {
-                    // Document Modes Selector Bar (Whiteboard, Book, Document, ID card, Business Card)
+                    // Document Modes Selector Bar
                     val docTypes = listOf("Whiteboard", "Book", "Document", "ID card", "Business Card")
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
@@ -599,7 +673,7 @@ fun ScannerScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // Shutter Control Bar (Gallery, Auto-detect, Shutter SNAP, Flash, Thumbnail Stack)
+                    // Shutter Controls Bar
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -607,7 +681,7 @@ fun ScannerScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Gallery Import Button
+                        // Gallery Import
                         IconButton(
                             onClick = { galleryLauncher.launch("image/*") },
                             modifier = Modifier
@@ -627,12 +701,12 @@ fun ScannerScreen(
                             modifier = Modifier
                                 .size(46.dp)
                                 .clip(CircleShape)
-                                .background(if (scanMode == ScanMode.AUTO) Color(0xFF2196F3) else Color.Black.copy(alpha = 0.6f))
+                                .background(if (scanMode == ScanMode.AUTO) Color(0xFF00E676) else Color.Black.copy(alpha = 0.6f))
                         ) {
                             Icon(Icons.Filled.CropFree, contentDescription = "Auto Mode", tint = Color.White)
                         }
 
-                        // Main Shutter Button (Large Blue Outer Circle)
+                        // Main Shutter Button
                         Box(
                             modifier = Modifier
                                 .size(76.dp)
@@ -648,7 +722,7 @@ fun ScannerScreen(
                             Icon(Icons.Filled.CameraAlt, contentDescription = "Snap", tint = Color.White, modifier = Modifier.size(32.dp))
                         }
 
-                        // Flash Toggle Button
+                        // Flash Toggle
                         IconButton(
                             onClick = {
                                 isFlashOn = !isFlashOn
@@ -667,7 +741,7 @@ fun ScannerScreen(
                             )
                         }
 
-                        // Thumbnail Preview Badge Button (Clicking opens Crop Editor View - Image 2)
+                        // Thumbnail Preview Badge Button
                         Box(
                             modifier = Modifier
                                 .size(50.dp)
@@ -677,7 +751,8 @@ fun ScannerScreen(
                                 .clickable {
                                     if (scannedPages.isNotEmpty()) {
                                         activePageIndex = scannedPages.size - 1
-                                        cropQuad = detectTightDocumentQuad(scannedPages[activePageIndex])
+                                        val detection = DocumentDetector.detectDocument(scannedPages[activePageIndex])
+                                        cropQuad = detection.quad ?: QuadPoints(Offset(0.05f, 0.05f), Offset(0.95f, 0.05f), Offset(0.95f, 0.95f), Offset(0.05f, 0.95f))
                                         isEditingMode = true
                                     } else {
                                         Toast.makeText(context, "No documents captured yet", Toast.LENGTH_SHORT).show()
@@ -701,7 +776,6 @@ fun ScannerScreen(
                                 )
                             }
 
-                            // Blue Badge Count (e.g. "2")
                             if (scannedPages.isNotEmpty()) {
                                 Box(
                                     modifier = Modifier
@@ -754,7 +828,7 @@ fun ScannerScreen(
 
         } else {
             // ===============================================
-            // VIEW 2: CROP & DOCUMENT EDITOR MODE (Ref Image 2)
+            // VIEW 2: DOCUMENT CROP & EDITOR MODE
             // ===============================================
             val activeBitmap = if (scannedPages.isNotEmpty() && activePageIndex in scannedPages.indices) {
                 scannedPages[activePageIndex]
@@ -765,7 +839,7 @@ fun ScannerScreen(
                     .fillMaxSize()
                     .background(Color(0xFF1E1E1E))
             ) {
-                // Top Navigation Bar (Ref Image 2)
+                // Top Header
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -778,7 +852,7 @@ fun ScannerScreen(
                         Icon(Icons.Filled.Home, contentDescription = "Home", tint = Color.White)
                     }
 
-                    // Editable Title Header
+                    // Editable Title
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
@@ -801,7 +875,7 @@ fun ScannerScreen(
                     IconButton(
                         onClick = {
                             if (activeBitmap != null) {
-                                scannedPages[activePageIndex] = applyMagicColorFilter(activeBitmap)
+                                scannedPages[activePageIndex] = ImageEnhancer.applyMagicColor(activeBitmap)
                                 Toast.makeText(context, "Magic Color Applied!", Toast.LENGTH_SHORT).show()
                             }
                         }
@@ -810,7 +884,7 @@ fun ScannerScreen(
                     }
                 }
 
-                // Center Interactive Document Preview Container with Quad Corners & Edge Drag Handles
+                // Interactive Document Canvas & Quad Handles
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -833,7 +907,6 @@ fun ScannerScreen(
                                 modifier = Modifier.fillMaxSize()
                             )
 
-                            // Interactive Quad Handle Canvas Overlay (Ref Image 2)
                             Canvas(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -847,7 +920,6 @@ fun ScannerScreen(
                                             val pos = change.position
                                             val normPos = Offset(pos.x / w, pos.y / h)
 
-                                            // Determine nearest corner or edge handle
                                             val distTL = (normPos - cropQuad.topLeft).getDistance()
                                             val distTR = (normPos - cropQuad.topRight).getDistance()
                                             val distBR = (normPos - cropQuad.bottomRight).getDistance()
@@ -901,7 +973,7 @@ fun ScannerScreen(
                                 val ptBR = Offset(cropQuad.bottomRight.x * w, cropQuad.bottomRight.y * h)
                                 val ptBL = Offset(cropQuad.bottomLeft.x * w, cropQuad.bottomLeft.y * h)
 
-                                // Connecting Quad Lines (Solid Blue)
+                                // Connecting Quad Boundary Line
                                 val quadPath = Path().apply {
                                     moveTo(ptTL.x, ptTL.y)
                                     lineTo(ptTR.x, ptTR.y)
@@ -911,78 +983,75 @@ fun ScannerScreen(
                                 }
                                 drawPath(quadPath, color = Color(0xFF2196F3), style = Stroke(width = 3.dp.toPx()))
 
-                                // Outer Shaded Mask
-                                drawRect(Color.Black.copy(alpha = 0.45f))
-                                drawPath(quadPath, color = Color.Transparent) // Highlight center
-
-                                // 4 Corner Drag Circles (Blue Ring with Semi-transparent Inner Circle - Ref Image 2)
+                                // 4 Corner Drag Circles
                                 val cornerRadius = 14.dp.toPx()
                                 listOf(ptTL, ptTR, ptBR, ptBL).forEach { pt ->
                                     drawCircle(Color(0xFF2196F3), radius = cornerRadius, center = pt)
                                     drawCircle(Color.White.copy(alpha = 0.85f), radius = cornerRadius * 0.55f, center = pt)
                                 }
 
-                                // 4 Edge Drag Handle Bars (Horizontal & Vertical Rounded Rectangles - Ref Image 2)
+                                // 4 Edge Bar Handles
                                 val edgeWidth = 32.dp.toPx()
                                 val edgeHeight = 10.dp.toPx()
                                 val barColor = Color(0xFF2196F3)
 
-                                // Top Edge Bar
                                 val topMid = Offset((ptTL.x + ptTR.x) / 2f, (ptTL.y + ptTR.y) / 2f)
                                 drawRoundRect(
                                     color = barColor,
                                     topLeft = Offset(topMid.x - edgeWidth / 2f, topMid.y - edgeHeight / 2f),
                                     size = Size(edgeWidth, edgeHeight),
-                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx())
+                                    cornerRadius = CornerRadius(4.dp.toPx())
                                 )
 
-                                // Bottom Edge Bar
                                 val botMid = Offset((ptBL.x + ptBR.x) / 2f, (ptBL.y + ptBR.y) / 2f)
                                 drawRoundRect(
                                     color = barColor,
                                     topLeft = Offset(botMid.x - edgeWidth / 2f, botMid.y - edgeHeight / 2f),
                                     size = Size(edgeWidth, edgeHeight),
-                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx())
+                                    cornerRadius = CornerRadius(4.dp.toPx())
                                 )
 
-                                // Left Edge Bar
                                 val leftMid = Offset((ptTL.x + ptBL.x) / 2f, (ptTL.y + ptBL.y) / 2f)
                                 drawRoundRect(
                                     color = barColor,
                                     topLeft = Offset(leftMid.x - edgeHeight / 2f, leftMid.y - edgeWidth / 2f),
                                     size = Size(edgeHeight, edgeWidth),
-                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx())
+                                    cornerRadius = CornerRadius(4.dp.toPx())
                                 )
 
-                                // Right Edge Bar
                                 val rightMid = Offset((ptTR.x + ptBR.x) / 2f, (ptTR.y + ptBR.y) / 2f)
                                 drawRoundRect(
                                     color = barColor,
                                     topLeft = Offset(rightMid.x - edgeHeight / 2f, rightMid.y - edgeWidth / 2f),
                                     size = Size(edgeHeight, edgeWidth),
-                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx())
+                                    cornerRadius = CornerRadius(4.dp.toPx())
                                 )
                             }
                         }
                     }
                 }
 
-                // Action Overlay Pill Buttons (Above bottom bar - Ref Image 2: Auto-detect & Straighten)
+                // Action Overlay Pill Buttons
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 24.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    // Auto-detect Button (Trims extra space automatically!)
+                    // Auto-detect Button
                     Surface(
                         shape = RoundedCornerShape(20.dp),
                         color = Color.Black.copy(alpha = 0.75f),
                         border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.6f)),
                         modifier = Modifier.clickable {
                             if (activeBitmap != null) {
-                                cropQuad = detectTightDocumentQuad(activeBitmap)
-                                Toast.makeText(context, "Document Auto-detected without extra space", Toast.LENGTH_SHORT).show()
+                                val detection = DocumentDetector.detectDocument(activeBitmap)
+                                if (detection.quad != null) {
+                                    cropQuad = detection.quad
+                                    Toast.makeText(context, "Document Auto-detected cleanly!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "No obvious document outline found", Toast.LENGTH_SHORT).show()
+                                }
                             }
                         }
                     ) {
@@ -1031,7 +1100,7 @@ fun ScannerScreen(
                     }
                 }
 
-                // Bottom Editing Navigation Tool Bar (Ref Image 2)
+                // Bottom Tool Bar
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1040,19 +1109,17 @@ fun ScannerScreen(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Retake Button
+                    // Retake
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.clickable {
-                            isEditingMode = false // Return to camera
-                        }
+                        modifier = Modifier.clickable { isEditingMode = false }
                     ) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Retake", tint = Color.White, modifier = Modifier.size(22.dp))
                         Spacer(modifier = Modifier.height(4.dp))
                         Text("Retake", color = Color.White, fontSize = 11.sp)
                     }
 
-                    // Crop Button (Blue Highlight Square when active - Ref Image 2)
+                    // Crop
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
@@ -1067,7 +1134,7 @@ fun ScannerScreen(
                         }
                     }
 
-                    // Rotate Button
+                    // Rotate
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.clickable {
@@ -1077,7 +1144,8 @@ fun ScannerScreen(
                                     activeBitmap, 0, 0, activeBitmap.width, activeBitmap.height, matrix, true
                                 )
                                 scannedPages[activePageIndex] = rotated
-                                cropQuad = detectTightDocumentQuad(rotated)
+                                val detection = DocumentDetector.detectDocument(rotated)
+                                cropQuad = detection.quad ?: QuadPoints(Offset(0.05f, 0.05f), Offset(0.95f, 0.05f), Offset(0.95f, 0.95f), Offset(0.05f, 0.95f))
                             }
                         }
                     ) {
@@ -1086,7 +1154,7 @@ fun ScannerScreen(
                         Text("Rotate", color = Color.White, fontSize = 11.sp)
                     }
 
-                    // Edit Text / OCR Button
+                    // OCR
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.clickable {
@@ -1103,22 +1171,18 @@ fun ScannerScreen(
                         Text("Edit text", color = Color.White, fontSize = 11.sp)
                     }
 
-                    // Filters Button
+                    // Filters Cycle
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.clickable {
                             if (activeBitmap != null) {
-                                // Cycle filter
-                                val filters = listOf("Magic Color", "B&W", "Grayscale", "Warm Paper", "Original")
-                                val nextIdx = (filters.indexOf(selectedFilter) + 1) % filters.size
-                                selectedFilter = filters[nextIdx]
-                                scannedPages[activePageIndex] = when (selectedFilter) {
-                                    "Magic Color" -> applyMagicColorFilter(activeBitmap)
-                                    "B&W" -> applyBWFilter(activeBitmap)
-                                    "Grayscale" -> applyGrayscaleFilter(activeBitmap)
-                                    else -> activeBitmap
-                                }
-                                Toast.makeText(context, "Filter: $selectedFilter", Toast.LENGTH_SHORT).show()
+                                val filterTypes = FilterType.entries.toTypedArray()
+                                val currentIdx = filterTypes.indexOfFirst { it.displayName.equals(selectedFilter, ignoreCase = true) }
+                                val nextIdx = if (currentIdx == -1) 0 else (currentIdx + 1) % filterTypes.size
+                                val nextFilter = filterTypes[nextIdx]
+                                selectedFilter = nextFilter.displayName
+                                scannedPages[activePageIndex] = ImageEnhancer.applyFilter(activeBitmap, nextFilter)
+                                Toast.makeText(context, "Filter: ${nextFilter.displayName}", Toast.LENGTH_SHORT).show()
                             }
                         }
                     ) {
@@ -1127,7 +1191,7 @@ fun ScannerScreen(
                         Text("Filters", color = Color.White, fontSize = 11.sp)
                     }
 
-                    // Delete Page Button
+                    // Delete
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.clickable {
@@ -1147,7 +1211,7 @@ fun ScannerScreen(
                     }
                 }
 
-                // Footer Action Bar (Ref Image 2: Keep scanning & Save PDF ^)
+                // Footer Action Bar
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1157,21 +1221,17 @@ fun ScannerScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Keep scanning Text Button
-                    TextButton(
-                        onClick = { isEditingMode = false }
-                    ) {
+                    TextButton(onClick = { isEditingMode = false }) {
                         Text("Keep scanning", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                     }
 
-                    // Save PDF Button (Solid Blue Pill with Arrow - Ref Image 2)
                     Button(
                         onClick = {
                             if (scannedPages.isNotEmpty()) {
-                                // Apply crop to active pages before saving
+                                // Apply Homography Perspective Transform to cropped active page
                                 val croppedList = scannedPages.mapIndexed { idx, bmp ->
                                     if (idx == activePageIndex) {
-                                        cropBitmapToQuad(bmp, cropQuad)
+                                        PerspectiveTransformer.transform(bmp, cropQuad)
                                     } else {
                                         bmp
                                     }
@@ -1185,7 +1245,7 @@ fun ScannerScreen(
                                         Toast.makeText(context, "Saved $documentTitle.pdf successfully!", Toast.LENGTH_SHORT).show()
                                         onCompleteScan()
                                     }
-                                );
+                                )
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3)),
@@ -1200,181 +1260,6 @@ fun ScannerScreen(
             }
         }
     }
-}
-
-// Function to calculate tight document quadrilateral bounds automatically
-private fun detectTightDocumentQuad(bitmap: Bitmap): QuadPoints {
-    val width = bitmap.width.toFloat()
-    val height = bitmap.height.toFloat()
-
-    var minX = width * 0.08f
-    var maxX = width * 0.92f
-    var minY = height * 0.08f
-    var maxY = height * 0.92f
-
-    val sampleStep = (bitmap.width / 40).coerceAtLeast(1)
-    var foundTop = false
-    var foundBottom = false
-    var foundLeft = false
-    var foundRight = false
-
-    // Top to Bottom scan
-    for (y in 0 until bitmap.height step sampleStep) {
-        var lightCount = 0
-        var total = 0
-        for (x in 0 until bitmap.width step sampleStep) {
-            val pixel = bitmap.getPixel(x, y)
-            val r = (pixel shr 16) and 0xFF
-            val g = (pixel shr 8) and 0xFF
-            val b = pixel and 0xFF
-            val brightness = (r + g + b) / 3
-            if (brightness > 130) lightCount++
-            total++
-        }
-        if (!foundTop && total > 0 && (lightCount.toFloat() / total) > 0.30f) {
-            minY = y.toFloat()
-            foundTop = true
-        }
-    }
-
-    // Bottom to Top scan
-    for (y in bitmap.height - 1 downTo 0 step sampleStep) {
-        var lightCount = 0
-        var total = 0
-        for (x in 0 until bitmap.width step sampleStep) {
-            val pixel = bitmap.getPixel(x, y)
-            val r = (pixel shr 16) and 0xFF
-            val g = (pixel shr 8) and 0xFF
-            val b = pixel and 0xFF
-            val brightness = (r + g + b) / 3
-            if (brightness > 130) lightCount++
-            total++
-        }
-        if (!foundBottom && total > 0 && (lightCount.toFloat() / total) > 0.30f) {
-            maxY = y.toFloat()
-            foundBottom = true
-        }
-    }
-
-    // Left to Right scan
-    for (x in 0 until bitmap.width step sampleStep) {
-        var lightCount = 0
-        var total = 0
-        for (y in 0 until bitmap.height step sampleStep) {
-            val pixel = bitmap.getPixel(x, y)
-            val r = (pixel shr 16) and 0xFF
-            val g = (pixel shr 8) and 0xFF
-            val b = pixel and 0xFF
-            val brightness = (r + g + b) / 3
-            if (brightness > 130) lightCount++
-            total++
-        }
-        if (!foundLeft && total > 0 && (lightCount.toFloat() / total) > 0.30f) {
-            minX = x.toFloat()
-            foundLeft = true
-        }
-    }
-
-    // Right to Left scan
-    for (x in bitmap.width - 1 downTo 0 step sampleStep) {
-        var lightCount = 0
-        var total = 0
-        for (y in 0 until bitmap.height step sampleStep) {
-            val pixel = bitmap.getPixel(x, y)
-            val r = (pixel shr 16) and 0xFF
-            val g = (pixel shr 8) and 0xFF
-            val b = pixel and 0xFF
-            val brightness = (r + g + b) / 3
-            if (brightness > 130) lightCount++
-            total++
-        }
-        if (!foundRight && total > 0 && (lightCount.toFloat() / total) > 0.30f) {
-            maxX = x.toFloat()
-            foundRight = true
-        }
-    }
-
-    val safeL = (minX / width).coerceIn(0f, 0.35f)
-    val safeR = (maxX / width).coerceIn(0.65f, 1f)
-    val safeT = (minY / height).coerceIn(0f, 0.35f)
-    val safeB = (maxY / height).coerceIn(0.65f, 1f)
-
-    return QuadPoints(
-        topLeft = Offset(safeL, safeT),
-        topRight = Offset(safeR, safeT),
-        bottomRight = Offset(safeR, safeB),
-        bottomLeft = Offset(safeL, safeB)
-    )
-}
-
-// Helper to crop bitmap cleanly according to quad points
-private fun cropBitmapToQuad(src: Bitmap, quad: QuadPoints): Bitmap {
-    try {
-        val cropX = (src.width * quad.topLeft.x).toInt().coerceIn(0, src.width - 20)
-        val cropY = (src.height * quad.topLeft.y).toInt().coerceIn(0, src.height - 20)
-        val cropW = (src.width * (quad.topRight.x - quad.topLeft.x)).toInt().coerceIn(20, src.width - cropX)
-        val cropH = (src.height * (quad.bottomLeft.y - quad.topLeft.y)).toInt().coerceIn(20, src.height - cropY)
-
-        return Bitmap.createBitmap(src, cropX, cropY, cropW, cropH)
-    } catch (e: Exception) {
-        return src
-    }
-}
-
-// Magic color contrast enhancement filter
-private fun applyMagicColorFilter(src: Bitmap): Bitmap {
-    val dest = Bitmap.createBitmap(src.width, src.height, src.config ?: Bitmap.Config.ARGB_8888)
-    val canvas = AndroidCanvas(dest)
-    val paint = AndroidPaint().apply {
-        val cm = ColorMatrix()
-        val contrast = 1.35f
-        val brightness = 15f
-        val array = floatArrayOf(
-            contrast, 0f, 0f, 0f, brightness,
-            0f, contrast, 0f, 0f, brightness,
-            0f, 0f, contrast, 0f, brightness,
-            0f, 0f, 0f, 1f, 0f
-        )
-        cm.set(array)
-        colorFilter = ColorMatrixColorFilter(cm)
-    }
-    canvas.drawBitmap(src, 0f, 0f, paint)
-    return dest
-}
-
-// Grayscale filter
-private fun applyGrayscaleFilter(src: Bitmap): Bitmap {
-    val dest = Bitmap.createBitmap(src.width, src.height, src.config ?: Bitmap.Config.ARGB_8888)
-    val canvas = AndroidCanvas(dest)
-    val paint = AndroidPaint().apply {
-        val cm = ColorMatrix()
-        cm.setSaturation(0f)
-        colorFilter = ColorMatrixColorFilter(cm)
-    }
-    canvas.drawBitmap(src, 0f, 0f, paint)
-    return dest
-}
-
-// Black & White Binarization Filter
-private fun applyBWFilter(src: Bitmap): Bitmap {
-    val dest = Bitmap.createBitmap(src.width, src.height, src.config ?: Bitmap.Config.ARGB_8888)
-    val canvas = AndroidCanvas(dest)
-    val paint = AndroidPaint().apply {
-        val cm = ColorMatrix()
-        cm.setSaturation(0f)
-        val scale = 2.0f
-        val translate = -128f * scale + 128f
-        val bwArray = floatArrayOf(
-            scale, scale, scale, 0f, translate,
-            scale, scale, scale, 0f, translate,
-            scale, scale, scale, 0f, translate,
-            0f, 0f, 0f, 1f, 0f
-        )
-        cm.set(bwArray)
-        colorFilter = ColorMatrixColorFilter(cm)
-    }
-    canvas.drawBitmap(src, 0f, 0f, paint)
-    return dest
 }
 
 @Composable
@@ -1460,7 +1345,6 @@ private fun RenameDocumentDialog(
     )
 }
 
-// Convert CameraX ImageProxy to Bitmap
 private fun imageProxyToBitmap(image: ImageProxy): Bitmap? {
     val planeProxy = image.planes[0]
     val buffer: ByteBuffer = planeProxy.buffer
@@ -1469,7 +1353,6 @@ private fun imageProxyToBitmap(image: ImageProxy): Bitmap? {
     return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
 }
 
-// Fallback document generator
 private fun generateDocumentBitmap(context: Context, pageNumber: Int): Bitmap {
     val bitmap = Bitmap.createBitmap(800, 1100, Bitmap.Config.ARGB_8888)
     val canvas = AndroidCanvas(bitmap)
@@ -1496,15 +1379,14 @@ private fun generateDocumentBitmap(context: Context, pageNumber: Int): Bitmap {
     }
 
     val sampleLines = listOf(
-        "Adobe Scan Document Engine - Ultra HD Optical Capture",
+        "Adobe Scan Computer Vision Engine",
         "Date: ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date())}",
         "Resolution: 300 DPI Clear Contrast Document Mode",
         "",
-        "Auto Edge Detection: Completed without extra background space.",
-        "Manual Crop Quad Adjustments: Active.",
-        "Magic Color Enhancement Applied.",
-        "",
-        "Page $pageNumber of scanned batch compiled into standard PDF."
+        "Real-time Document Detection: Complete.",
+        "Corner Stability & Temporal Filtering: Active.",
+        "Perspective Correction & Homography: Applied.",
+        "Magic Color Enhancement Applied."
     )
 
     var y = 190f
