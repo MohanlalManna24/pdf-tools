@@ -813,14 +813,108 @@ object PdfEngine {
         LocalPdfInfo(outputFile, pageCount, outputFile.length())
     }
 
+    data class WatermarkConfig(
+        val text: String = "CONFIDENTIAL",
+        val position: String = "DIAGONAL", // DIAGONAL, CENTER, TOP, BOTTOM, TILE
+        val colorHex: String = "#D31A28",
+        val sizeSp: Float = 42f,
+        val opacityPercent: Int = 45
+    ) {
+        companion object {
+            fun parse(rawParam: String): WatermarkConfig {
+                if (!rawParam.contains("::")) {
+                    val t = rawParam.ifBlank { "CONFIDENTIAL" }
+                    return WatermarkConfig(text = t)
+                }
+                val parts = rawParam.split("::")
+                val text = parts.getOrNull(0)?.ifBlank { "CONFIDENTIAL" } ?: "CONFIDENTIAL"
+                val position = parts.getOrNull(1)?.ifBlank { "DIAGONAL" } ?: "DIAGONAL"
+                val colorHex = parts.getOrNull(2)?.ifBlank { "#D31A28" } ?: "#D31A28"
+                val sizeSp = parts.getOrNull(3)?.toFloatOrNull() ?: 42f
+                val opacityPercent = parts.getOrNull(4)?.toIntOrNull() ?: 45
+                return WatermarkConfig(text, position, colorHex, sizeSp, opacityPercent)
+            }
+        }
+    }
+
+    fun applyWatermarkToCanvas(
+        canvas: Canvas,
+        pageWidth: Float,
+        pageHeight: Float,
+        config: WatermarkConfig
+    ) {
+        val cleanText = config.text.ifBlank { "CONFIDENTIAL" }
+        val baseColor = try { Color.parseColor(config.colorHex) } catch (e: Exception) { Color.RED }
+        val alpha = ((config.opacityPercent.coerceIn(5, 100) / 100f) * 255).toInt()
+        val colorWithAlpha = Color.argb(
+            alpha,
+            Color.red(baseColor),
+            Color.green(baseColor),
+            Color.blue(baseColor)
+        )
+
+        val paint = Paint().apply {
+            color = colorWithAlpha
+            textSize = config.sizeSp
+            isAntiAlias = true
+            isFakeBoldText = true
+            textAlign = Paint.Align.CENTER
+        }
+
+        when (config.position.uppercase()) {
+            "DIAGONAL" -> {
+                canvas.save()
+                canvas.rotate(-35f, pageWidth / 2f, pageHeight / 2f)
+                canvas.drawText(cleanText, pageWidth / 2f, pageHeight / 2f, paint)
+                canvas.restore()
+            }
+            "CENTER" -> {
+                canvas.drawText(cleanText, pageWidth / 2f, pageHeight / 2f, paint)
+            }
+            "TOP" -> {
+                paint.textSize = config.sizeSp * 0.75f
+                canvas.drawText(cleanText, pageWidth / 2f, pageHeight * 0.12f, paint)
+            }
+            "BOTTOM" -> {
+                paint.textSize = config.sizeSp * 0.75f
+                canvas.drawText(cleanText, pageWidth / 2f, pageHeight * 0.88f, paint)
+            }
+            "TILE" -> {
+                canvas.save()
+                paint.textSize = config.sizeSp * 0.6f
+                paint.textAlign = Paint.Align.LEFT
+                canvas.rotate(-25f, pageWidth / 2f, pageHeight / 2f)
+                val textWidth = paint.measureText(cleanText).coerceAtLeast(80f)
+                val stepX = textWidth + 90f
+                val stepY = config.sizeSp * 2.8f
+
+                var y = -pageHeight
+                while (y < pageHeight * 2) {
+                    var x = -pageWidth
+                    while (x < pageWidth * 2) {
+                        canvas.drawText(cleanText, x, y, paint)
+                        x += stepX
+                    }
+                    y += stepY
+                }
+                canvas.restore()
+            }
+            else -> {
+                canvas.save()
+                canvas.rotate(-35f, pageWidth / 2f, pageHeight / 2f)
+                canvas.drawText(cleanText, pageWidth / 2f, pageHeight / 2f, paint)
+                canvas.restore()
+            }
+        }
+    }
+
     /**
      * WATERMARK: Overlay custom watermark text
      */
-    suspend fun createWatermarkedPdf(context: Context, sourcePath: String, watermarkText: String): LocalPdfInfo = withContext(Dispatchers.IO) {
+    suspend fun createWatermarkedPdf(context: Context, sourcePath: String, extraParam: String): LocalPdfInfo = withContext(Dispatchers.IO) {
         val document = PdfDocument()
         val sourceFile = File(sourcePath)
-
-        val cleanText = if (watermarkText.isBlank()) "CONFIDENTIAL" else watermarkText.uppercase()
+        val config = WatermarkConfig.parse(extraParam)
 
         var pageCount = 0
         if (sourceFile.exists()) {
@@ -838,16 +932,7 @@ object PdfEngine {
                                 canvas.drawBitmap(bitmap, 0f, 0f, null)
 
                                 // Draw Watermark overlay
-                                val watermarkPaint = Paint().apply {
-                                    color = Color.parseColor("#50D31A28")
-                                    textSize = 44f
-                                    isAntiAlias = true
-                                    isFakeBoldText = true
-                                }
-                                canvas.save()
-                                canvas.rotate(-35f, page.width / 2f, page.height / 2f)
-                                canvas.drawText(cleanText, page.width / 4f, page.height / 2f, watermarkPaint)
-                                canvas.restore()
+                                applyWatermarkToCanvas(canvas, page.width.toFloat(), page.height.toFloat(), config)
 
                                 document.finishPage(newPage)
                                 pageCount++
@@ -871,17 +956,7 @@ object PdfEngine {
                 canvas.drawText("Document: ${File(sourcePath).name}", 40f, 80f, textPaint)
                 canvas.drawText("Page $p of 3 - Watermarked copy", 40f, 110f, textPaint)
 
-                val watermarkPaint = Paint().apply {
-                    color = Color.parseColor("#50D31A28")
-                    textSize = 42f
-                    isAntiAlias = true
-                    isFakeBoldText = true
-                }
-
-                canvas.save()
-                canvas.rotate(-35f, 297f, 421f)
-                canvas.drawText(cleanText, 120f, 430f, watermarkPaint)
-                canvas.restore()
+                applyWatermarkToCanvas(canvas, 595f, 842f, config)
 
                 document.finishPage(page)
                 pageCount++

@@ -47,10 +47,14 @@ import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -58,6 +62,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -67,6 +74,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -77,6 +85,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -187,6 +197,10 @@ fun ToolDetailScreen(
 
     // Tool specific params
     var watermarkText by remember { mutableStateOf("CONFIDENTIAL") }
+    var watermarkPosition by remember { mutableStateOf("DIAGONAL") }
+    var watermarkColorHex by remember { mutableStateOf("#D31A28") }
+    var watermarkSize by remember { mutableStateOf("Medium") }
+    var watermarkOpacity by remember { mutableFloatStateOf(0.45f) }
     var passwordText by remember { mutableStateOf("") }
     var isPasswordVisible by remember { mutableStateOf(false) }
     var compressionPreset by remember { mutableStateOf("Recommended (Balanced)") }
@@ -306,7 +320,16 @@ fun ToolDetailScreen(
                                 if (selectedPageIndices.isEmpty()) (1..totalLoadedPages).joinToString(",")
                                 else selectedPageIndices.joinToString(",")
                             }
-                            "watermark" -> watermarkText
+                            "watermark" -> {
+                                val sizeSp = when(watermarkSize) {
+                                    "Small" -> 28f
+                                    "Large" -> 58f
+                                    "XL" -> 76f
+                                    else -> 42f
+                                }
+                                val opacityPercent = (watermarkOpacity * 100).toInt()
+                                "$watermarkText::$watermarkPosition::$watermarkColorHex::$sizeSp::$opacityPercent"
+                            }
                             "password" -> passwordText
                             "compress" -> compressionPreset
                             "rotate" -> rotationAngle
@@ -804,6 +827,125 @@ fun ToolDetailScreen(
                     }
                 }
             } else if (toolId == "watermark") {
+                // LIVE PREVIEW CARD
+                item {
+                    val previewConfig = remember(watermarkText, watermarkPosition, watermarkColorHex, watermarkSize, watermarkOpacity) {
+                        val sizeSp = when(watermarkSize) {
+                            "Small" -> 28f
+                            "Large" -> 58f
+                            "XL" -> 76f
+                            else -> 42f
+                        }
+                        val opacityPercent = (watermarkOpacity * 100).toInt()
+                        PdfEngine.WatermarkConfig(
+                            text = watermarkText,
+                            position = watermarkPosition,
+                            colorHex = watermarkColorHex,
+                            sizeSp = sizeSp,
+                            opacityPercent = opacityPercent
+                        )
+                    }
+
+                    val firstFilePath = selectedFiles.firstOrNull()?.localPath
+                    var previewBitmap by remember(firstFilePath) { mutableStateOf<Bitmap?>(null) }
+
+                    LaunchedEffect(firstFilePath) {
+                        if (!firstFilePath.isNullOrEmpty()) {
+                            val file = File(firstFilePath)
+                            if (file.exists()) {
+                                withContext(Dispatchers.IO) {
+                                    val bmp = PdfEngine.renderPageToBitmap(file, 0, 600)
+                                    withContext(Dispatchers.Main) {
+                                        previewBitmap = bmp
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = WarmCardBgLight),
+                        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(WarmBorderLight))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Live Watermark Preview", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                Surface(
+                                    color = RedPrimary.copy(alpha = 0.1f),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        "REAL-TIME",
+                                        color = RedPrimary,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(0.82f)
+                                    .aspectRatio(0.72f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color.White)
+                                    .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(12.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (previewBitmap != null) {
+                                    Image(
+                                        bitmap = previewBitmap!!.asImageBitmap(),
+                                        contentDescription = "PDF Page Preview",
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(20.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Box(modifier = Modifier.fillMaxWidth(0.6f).height(12.dp).background(Color(0xFFE0E0E0), RoundedCornerShape(4.dp)))
+                                        Box(modifier = Modifier.fillMaxWidth(0.9f).height(8.dp).background(Color(0xFFEEEEEE), RoundedCornerShape(4.dp)))
+                                        Box(modifier = Modifier.fillMaxWidth(0.8f).height(8.dp).background(Color(0xFFEEEEEE), RoundedCornerShape(4.dp)))
+                                        Box(modifier = Modifier.fillMaxWidth(0.95f).height(8.dp).background(Color(0xFFEEEEEE), RoundedCornerShape(4.dp)))
+                                        Spacer(modifier = Modifier.weight(1f))
+                                        Box(modifier = Modifier.fillMaxWidth(0.4f).height(6.dp).background(Color(0xFFEEEEEE), RoundedCornerShape(3.dp)))
+                                    }
+                                }
+
+                                Canvas(modifier = Modifier.fillMaxSize()) {
+                                    drawIntoCanvas { canvas ->
+                                        val scaleRatio = size.width / 595f
+                                        val scaledConfig = previewConfig.copy(
+                                            sizeSp = (previewConfig.sizeSp * scaleRatio).coerceAtLeast(14f)
+                                        )
+                                        PdfEngine.applyWatermarkToCanvas(
+                                            canvas = canvas.nativeCanvas,
+                                            pageWidth = size.width,
+                                            pageHeight = size.height,
+                                            config = scaledConfig
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // WATERMARK CONTROLS CARD
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -812,15 +954,162 @@ fun ToolDetailScreen(
                         border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(WarmBorderLight))
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
-                            Text("Watermark Text", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text("Custom Watermark Text", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                             Spacer(modifier = Modifier.height(8.dp))
                             OutlinedTextField(
                                 value = watermarkText,
                                 onValueChange = { watermarkText = it },
+                                placeholder = { Text("e.g. CONFIDENTIAL") },
                                 modifier = Modifier.fillMaxWidth().testTag("watermark_input"),
                                 shape = RoundedCornerShape(12.dp),
                                 singleLine = true,
                                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = RedPrimary)
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            val presets = listOf("CONFIDENTIAL", "DRAFT", "SAMPLE", "DO NOT COPY", "OFFICIAL", "SECRET")
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(presets) { preset ->
+                                    FilterChip(
+                                        selected = (watermarkText == preset),
+                                        onClick = { watermarkText = preset },
+                                        label = { Text(preset, fontSize = 11.sp) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = RedPrimary,
+                                            selectedLabelColor = Color.White
+                                        )
+                                    )
+                                }
+                            }
+
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp), color = WarmBorderLight)
+
+                            Text("Watermark Position", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            val positionOptions = listOf(
+                                "DIAGONAL" to "Diagonal ↗",
+                                "CENTER" to "Center ↔",
+                                "TOP" to "Header ⬆",
+                                "BOTTOM" to "Footer ⬇",
+                                "TILE" to "Grid Tile ▦"
+                            )
+
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(positionOptions) { (key, label) ->
+                                    FilterChip(
+                                        selected = (watermarkPosition == key),
+                                        onClick = { watermarkPosition = key },
+                                        label = { Text(label, fontSize = 12.sp, fontWeight = FontWeight.Medium) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = RedPrimary,
+                                            selectedLabelColor = Color.White
+                                        )
+                                    )
+                                }
+                            }
+
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp), color = WarmBorderLight)
+
+                            Text("Font Color", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            val colorsList = listOf(
+                                "#D31A28" to "Red",
+                                "#212121" to "Black",
+                                "#1976D2" to "Blue",
+                                "#388E3C" to "Green",
+                                "#F57C00" to "Orange",
+                                "#7B1FA2" to "Purple",
+                                "#757575" to "Gray"
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                colorsList.forEach { (hex, name) ->
+                                    val parsedColor = try { Color(android.graphics.Color.parseColor(hex)) } catch(e: Exception) { Color.Red }
+                                    val isSelected = (watermarkColorHex.equals(hex, ignoreCase = true))
+
+                                    Box(
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clip(CircleShape)
+                                            .background(parsedColor)
+                                            .border(
+                                                width = if (isSelected) 3.dp else 1.dp,
+                                                color = if (isSelected) RedPrimary else Color.LightGray,
+                                                shape = CircleShape
+                                            )
+                                            .clickable { watermarkColorHex = hex },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (isSelected) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Check,
+                                                contentDescription = name,
+                                                tint = Color.White,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp), color = WarmBorderLight)
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Font Size", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    listOf("Small", "Medium", "Large", "XL").forEach { sz ->
+                                        FilterChip(
+                                            selected = (watermarkSize == sz),
+                                            onClick = { watermarkSize = sz },
+                                            label = { Text(sz, fontSize = 11.sp) },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = RedPrimary,
+                                                selectedLabelColor = Color.White
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Opacity", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                Text(
+                                    "${(watermarkOpacity * 100).toInt()}%",
+                                    fontWeight = FontWeight.Bold,
+                                    color = RedPrimary,
+                                    fontSize = 14.sp
+                                )
+                            }
+
+                            Slider(
+                                value = watermarkOpacity,
+                                onValueChange = { watermarkOpacity = it },
+                                valueRange = 0.15f..1.0f,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = RedPrimary,
+                                    activeTrackColor = RedPrimary
+                                )
                             )
                         }
                     }
