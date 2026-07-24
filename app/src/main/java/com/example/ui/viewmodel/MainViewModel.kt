@@ -31,6 +31,12 @@ import java.util.Locale
 
 import com.example.cv.FilterType
 import com.example.cv.ImageEnhancer
+import com.example.util.BatteryOptimizationManager
+import com.example.util.BatteryInfo
+import com.example.worker.PdfWorker
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import java.util.UUID
 
 sealed interface ProcessingUiState {
     object Idle : ProcessingUiState
@@ -64,6 +70,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Current active file in reader
     private val _activePdf = MutableStateFlow<PdfEntity?>(null)
     val activePdf: StateFlow<PdfEntity?> = _activePdf.asStateFlow()
+
+    // Battery & WorkManager State
+    private val _isBatterySaverEnabled = MutableStateFlow(BatteryOptimizationManager.isBatterySaverEnabled(application))
+    val isBatterySaverEnabled: StateFlow<Boolean> = _isBatterySaverEnabled.asStateFlow()
+
+    private val _pauseOnLowBattery = MutableStateFlow(BatteryOptimizationManager.isPauseLowBatteryEnabled(application))
+    val pauseOnLowBattery: StateFlow<Boolean> = _pauseOnLowBattery.asStateFlow()
+
+    private val _requireCharging = MutableStateFlow(BatteryOptimizationManager.isRequireChargingEnabled(application))
+    val requireCharging: StateFlow<Boolean> = _requireCharging.asStateFlow()
+
+    private val _batteryInfo = MutableStateFlow(BatteryOptimizationManager.getBatteryInfo(application))
+    val batteryInfo: StateFlow<BatteryInfo> = _batteryInfo.asStateFlow()
+
+    private val _activeWorkId = MutableStateFlow<UUID?>(null)
+    val activeWorkId: StateFlow<UUID?> = _activeWorkId.asStateFlow()
+
+    fun refreshBatteryInfo() {
+        _batteryInfo.value = BatteryOptimizationManager.getBatteryInfo(getApplication())
+    }
+
+    fun setBatterySaverEnabled(enabled: Boolean) {
+        val app = getApplication<Application>()
+        BatteryOptimizationManager.setBatterySaverEnabled(app, enabled)
+        _isBatterySaverEnabled.value = enabled
+    }
+
+    fun setPauseOnLowBattery(enabled: Boolean) {
+        val app = getApplication<Application>()
+        BatteryOptimizationManager.setPauseLowBatteryEnabled(app, enabled)
+        _pauseOnLowBattery.value = enabled
+    }
+
+    fun setRequireCharging(enabled: Boolean) {
+        val app = getApplication<Application>()
+        BatteryOptimizationManager.setRequireChargingEnabled(app, enabled)
+        _requireCharging.value = enabled
+    }
 
     // Recent Files
     val recentFiles: StateFlow<List<PdfEntity>> = repository.recentPdfs
@@ -201,9 +245,60 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Perform Tool Processing locally
-    fun executeTool(toolId: String, titlesOrPaths: List<String>, extraParam: String = "") {
+    // Perform Tool Processing locally or via WorkManager based on Battery Saver settings
+    fun executeTool(toolId: String, titlesOrPaths: List<String>, extraParam: String = "", forceWorkManager: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
+            val context = getApplication<Application>()
+            val currentBattery = BatteryOptimizationManager.getBatteryInfo(context)
+            _batteryInfo.value = currentBattery
+
+            val shouldDefer = forceWorkManager || BatteryOptimizationManager.shouldDeferToWorkManager(context)
+
+            if (shouldDefer) {
+                val toolName = "Queued in WorkManager (Battery Saver Active)"
+                _processingState.value = ProcessingUiState.Processing(toolName, 0.10f)
+
+                val workId = BatteryOptimizationManager.enqueueWorkManagerTask(context, toolId, titlesOrPaths, extraParam)
+                _activeWorkId.value = workId
+
+                WorkManager.getInstance(context).getWorkInfoByIdFlow(workId).collect { workInfo ->
+                    if (workInfo != null) {
+                        when (workInfo.state) {
+                            WorkInfo.State.ENQUEUED -> {
+                                _processingState.value = ProcessingUiState.Processing("Task Enqueued in WorkManager (Battery Saver)", 0.20f)
+                            }
+                            WorkInfo.State.RUNNING -> {
+                                val progress = workInfo.progress.getFloat("progress", 0.50f)
+                                val status = workInfo.progress.getString("status") ?: "Processing safely in background..."
+                                _processingState.value = ProcessingUiState.Processing(status, progress)
+                            }
+                            WorkInfo.State.SUCCEEDED -> {
+                                val outTitle = workInfo.outputData.getString(PdfWorker.OUTPUT_TITLE) ?: "Processed_PDF.pdf"
+                                val outPath = workInfo.outputData.getString(PdfWorker.OUTPUT_PATH) ?: ""
+                                val outSize = workInfo.outputData.getString(PdfWorker.OUTPUT_SIZE) ?: "100 KB"
+                                val outPages = workInfo.outputData.getInt(PdfWorker.OUTPUT_PAGES, 1)
+
+                                val createdEntity = repository.getPdfByPath(outPath)
+
+                                _processingState.value = ProcessingUiState.Success(
+                                    title = outTitle,
+                                    path = outPath,
+                                    sizeFormatted = outSize,
+                                    pageCount = outPages,
+                                    createdEntity = createdEntity
+                                )
+                            }
+                            WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
+                                val err = workInfo.outputData.getString(PdfWorker.OUTPUT_ERROR) ?: "Background WorkManager task failed"
+                                _processingState.value = ProcessingUiState.Error(err)
+                            }
+                            else -> {}
+                        }
+                    }
+                }
+                return@launch
+            }
+
             val toolName = when(toolId) {
                 "merge" -> "Merging PDF documents..."
                 "split" -> "Splitting page ranges..."
@@ -220,12 +315,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 else -> "Processing document..."
             }
 
-            _processingState.value = ProcessingUiState.Processing(toolName, 0.15f)
+            val batterySaverOn = _isBatterySaverEnabled.value
 
-            // Step progression for UI feedback
+            _processingState.value = ProcessingUiState.Processing(
+                if (batterySaverOn) "$toolName (Eco CPU Mode)" else toolName,
+                0.15f
+            )
+
+            // Step progression for UI feedback with battery-aware yield
             for (i in 2..8) {
-                delay(120)
-                _processingState.value = ProcessingUiState.Processing(toolName, i * 0.11f)
+                delay(if (batterySaverOn) 180 else 120)
+                if (batterySaverOn) {
+                    kotlinx.coroutines.yield()
+                }
+                _processingState.value = ProcessingUiState.Processing(
+                    if (batterySaverOn) "$toolName (Eco CPU Mode)" else toolName,
+                    i * 0.11f
+                )
             }
 
             try {

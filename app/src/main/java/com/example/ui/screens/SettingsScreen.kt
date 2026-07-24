@@ -34,6 +34,13 @@ import androidx.compose.material.icons.filled.RateReview
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.filled.BatterySaver
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Power
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -91,6 +98,14 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val isDarkTheme by viewModel.isDarkTheme.collectAsState()
+    val isBatterySaverEnabled by viewModel.isBatterySaverEnabled.collectAsState()
+    val pauseOnLowBattery by viewModel.pauseOnLowBattery.collectAsState()
+    val requireCharging by viewModel.requireCharging.collectAsState()
+    val batteryInfo by viewModel.batteryInfo.collectAsState()
+
+    LaunchedEffect(Unit) {
+        viewModel.refreshBatteryInfo()
+    }
 
     var cacheSizeMb by remember { mutableStateOf("12.4 MB") }
     var showThemeDialog by remember { mutableStateOf(false) }
@@ -409,6 +424,154 @@ fun SettingsScreen(
                         Toast.makeText(context, "Cache cleared successfully", Toast.LENGTH_SHORT).show()
                     }
                 )
+            }
+
+            // BATTERY & PERFORMANCE Section
+            SettingsSectionHeader("BATTERY & PERFORMANCE")
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("battery_settings_card"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFDF0ED)),
+                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(Color(0xFFFFCDD2)))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    // Battery Status Badge
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (batteryInfo.isCharging) Color(0xFFE8F5E9) else Color(0xFFFFCDD2).copy(alpha = 0.5f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (batteryInfo.isCharging) Icons.Filled.BatteryChargingFull else Icons.Filled.BatterySaver,
+                                contentDescription = "Battery Status",
+                                tint = if (batteryInfo.isCharging) Color(0xFF2E7D32) else RedPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Battery Level: ${batteryInfo.levelPercent}%",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF1C1B1F)
+                            )
+                            Text(
+                                text = if (batteryInfo.isCharging) "Charging • WorkManager tasks ready"
+                                       else if (batteryInfo.isLowBattery) "Low Battery • WorkManager deferral active"
+                                       else "Normal Power • WorkManager available for long tasks",
+                                fontSize = 12.sp,
+                                color = if (batteryInfo.isLowBattery && !batteryInfo.isCharging) Color(0xFFD32F2F) else Color(0xFF605D62)
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = Color(0xFFFFCDD2).copy(alpha = 0.6f))
+
+                    // Battery Saver Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Battery-Efficient Processing",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF1C1B1F)
+                            )
+                            Text(
+                                text = "Uses Eco CPU throttling & coroutine yields during processing",
+                                fontSize = 12.sp,
+                                color = Color(0xFF605D62)
+                            )
+                        }
+                        Switch(
+                            checked = isBatterySaverEnabled,
+                            onCheckedChange = { viewModel.setBatterySaverEnabled(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = RedPrimary
+                            )
+                        )
+                    }
+
+                    HorizontalDivider(color = Color(0xFFFFCDD2).copy(alpha = 0.6f))
+
+                    // Pause / Defer Heavy Tasks on Low Battery Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "WorkManager Low Battery Deferral",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF1C1B1F)
+                            )
+                            Text(
+                                text = "Defers heavy PDF tasks to WorkManager when battery ≤ 20%",
+                                fontSize = 12.sp,
+                                color = Color(0xFF605D62)
+                            )
+                        }
+                        Switch(
+                            checked = pauseOnLowBattery,
+                            onCheckedChange = { viewModel.setPauseOnLowBattery(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = RedPrimary
+                            )
+                        )
+                    }
+
+                    HorizontalDivider(color = Color(0xFFFFCDD2).copy(alpha = 0.6f))
+
+                    // Require Charging Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Require Charging for Background Work",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF1C1B1F)
+                            )
+                            Text(
+                                text = "Only processes queued WorkManager batches when plugged in",
+                                fontSize = 12.sp,
+                                color = Color(0xFF605D62)
+                            )
+                        }
+                        Switch(
+                            checked = requireCharging,
+                            onCheckedChange = { viewModel.setRequireCharging(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = RedPrimary
+                            )
+                        )
+                    }
+                }
             }
 
             // PRIVACY & SECURITY Section

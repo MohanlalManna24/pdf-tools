@@ -296,6 +296,9 @@ object PdfEngine {
                 val newPage = tempDoc.startPage(pageInfo)
                 newPage.canvas.drawBitmap(bitmap, 0f, 0f, null)
                 tempDoc.finishPage(newPage)
+                if (!bitmap.isRecycled) {
+                    bitmap.recycle()
+                }
             }
         }
 
@@ -410,6 +413,9 @@ object PdfEngine {
 
                                     newPage.canvas.drawBitmap(bitmap, 0f, 0f, null)
                                     document.finishPage(newPage)
+                                    if (!bitmap.isRecycled) {
+                                        bitmap.recycle()
+                                    }
                                     totalPageCounter++
                                 }
                             }
@@ -519,6 +525,9 @@ object PdfEngine {
 
                                         newPage.canvas.drawBitmap(bitmap, 0f, 0f, null)
                                         document.finishPage(newPage)
+                                        if (!bitmap.isRecycled) {
+                                            bitmap.recycle()
+                                        }
                                     }
                                 }
 
@@ -555,6 +564,9 @@ object PdfEngine {
                                 val destRect = android.graphics.Rect(0, 0, page.width, page.height)
                                 newPage.canvas.drawBitmap(bitmap, null, destRect, null)
                                 document.finishPage(newPage)
+                                if (!bitmap.isRecycled) {
+                                    bitmap.recycle()
+                                }
                             }
                         }
 
@@ -711,6 +723,9 @@ object PdfEngine {
 
                                 newPage.canvas.drawBitmap(bitmap, 0f, 0f, null)
                                 document.finishPage(newPage)
+                                if (!bitmap.isRecycled) {
+                                    bitmap.recycle()
+                                }
                                 pageCount++
                             }
                         }
@@ -784,6 +799,9 @@ object PdfEngine {
 
                                 newPage.canvas.drawBitmap(bitmap, matrix, null)
                                 document.finishPage(newPage)
+                                if (!bitmap.isRecycled) {
+                                    bitmap.recycle()
+                                }
                                 pageCount++
                             }
                         }
@@ -935,6 +953,9 @@ object PdfEngine {
                                 applyWatermarkToCanvas(canvas, page.width.toFloat(), page.height.toFloat(), config)
 
                                 document.finishPage(newPage)
+                                if (!bitmap.isRecycled) {
+                                    bitmap.recycle()
+                                }
                                 pageCount++
                             }
                         }

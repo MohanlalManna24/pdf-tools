@@ -255,6 +255,7 @@ object DocumentDetector {
             return DetectionResult(null, 0f, false, processingTimeMs = procTime)
         } finally {
             if (isScaled) srcMat.release()
+            contours.forEach { runCatching { it.release() } }
             grayMat.release()
             blurredMat.release()
             cannyMat.release()

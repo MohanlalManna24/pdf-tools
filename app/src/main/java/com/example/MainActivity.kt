@@ -69,7 +69,13 @@ class MainActivity : ComponentActivity() {
             val activePdf by viewModel.activePdf.collectAsState()
             val allPdfs by viewModel.allFiles.collectAsState()
 
-            var currentScreen by remember { mutableStateOf<AppScreen>(AppScreen.MainTab(NavTab.HOME)) }
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val sharedPrefs = remember { context.getSharedPreferences("app_settings", MODE_PRIVATE) }
+            val isFirstLaunch = remember { sharedPrefs.getBoolean("is_first_launch", true) }
+
+            var currentScreen by remember {
+                mutableStateOf<AppScreen>(if (isFirstLaunch) AppScreen.Onboarding else AppScreen.MainTab(NavTab.HOME))
+            }
             var currentTab by remember { mutableStateOf(NavTab.HOME) }
 
             MyApplicationTheme(darkTheme = isDarkTheme) {
@@ -145,6 +151,7 @@ class MainActivity : ComponentActivity() {
                                         is AppScreen.Onboarding -> {
                                             OnboardingScreen(
                                                 onFinishOnboarding = {
+                                                    sharedPrefs.edit().putBoolean("is_first_launch", false).apply()
                                                     currentTab = NavTab.HOME
                                                     currentScreen = AppScreen.MainTab(NavTab.HOME)
                                                 }
