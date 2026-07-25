@@ -181,24 +181,6 @@ fun ToolDetailScreen(
         else -> "application/pdf"
     }
 
-    LaunchedEffect(activePdf) {
-        if (activePdf != null && selectedFiles.isEmpty()) {
-            val file = File(activePdf.path)
-            if (file.exists() && isFileSupportedForTool(toolId, file)) {
-                val isImage = PdfEngine.isValidImageFile(file) && !PdfEngine.isValidPdfFile(file)
-                selectedFiles.add(
-                    SelectedFileModel(
-                        name = activePdf.title,
-                        sizeText = activePdf.sizeFormatted,
-                        pageCountText = if (isImage) "Image file" else "${activePdf.pageCount} pages",
-                        localPath = activePdf.path,
-                        uri = null
-                    )
-                )
-            }
-        }
-    }
-
     BackHandler(enabled = selectedFiles.isNotEmpty()) {
         selectedFiles.clear()
     }
