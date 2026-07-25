@@ -92,6 +92,7 @@ import com.example.ui.components.PdfThumbnailView
 import com.example.ui.theme.RedPrimary
 import com.example.ui.theme.WarmBorderLight
 import com.example.ui.theme.WarmCardBgLight
+import com.example.util.FileValidationResult
 import com.example.util.PdfEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -134,8 +135,17 @@ fun PageManagerScreen(
         if (uri != null) {
             val tempFile = PdfEngine.getFileFromUri(context, uri)
             if (tempFile != null) {
-                currentPath = tempFile.absolutePath
-                currentTitle = tempFile.name
+                when (val valResult = PdfEngine.validateFileForTool(tempFile, toolMode)) {
+                    is FileValidationResult.Valid -> {
+                        currentPath = tempFile.absolutePath
+                        currentTitle = tempFile.name
+                    }
+                    is FileValidationResult.Invalid -> {
+                        Toast.makeText(context, valResult.reason, Toast.LENGTH_LONG).show()
+                    }
+                }
+            } else {
+                Toast.makeText(context, "Could not open selected file.", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -333,8 +343,20 @@ fun PageManagerScreen(
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(16.dp))
                                     .clickable {
-                                        currentPath = pdf.path
-                                        currentTitle = pdf.title
+                                        val file = File(pdf.path)
+                                        if (file.exists()) {
+                                            when (val valResult = PdfEngine.validateFileForTool(file, toolMode)) {
+                                                is FileValidationResult.Valid -> {
+                                                    currentPath = pdf.path
+                                                    currentTitle = pdf.title
+                                                }
+                                                is FileValidationResult.Invalid -> {
+                                                    Toast.makeText(context, valResult.reason, Toast.LENGTH_LONG).show()
+                                                }
+                                            }
+                                        } else {
+                                            Toast.makeText(context, "File not found: ${pdf.title}", Toast.LENGTH_SHORT).show()
+                                        }
                                     },
                                 colors = CardDefaults.cardColors(containerColor = Color.White),
                                 elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
@@ -440,6 +462,14 @@ fun PageManagerScreen(
 
     // Load PDF pages & render thumbnails
     LaunchedEffect(currentPath) {
+        if (currentPath.isNullOrEmpty()) return@LaunchedEffect
+        val valResult = PdfEngine.validateFileForTool(sourceFile, toolMode)
+        if (valResult is FileValidationResult.Invalid) {
+            Toast.makeText(context, valResult.reason, Toast.LENGTH_LONG).show()
+            currentPath = null
+            return@LaunchedEffect
+        }
+
         isLoadingThumbnails = true
         pagesList.clear()
         pageBitmaps.clear()

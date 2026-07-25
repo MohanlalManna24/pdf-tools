@@ -106,6 +106,7 @@ import com.example.ui.components.SelectedFileListItem
 import com.example.ui.theme.RedPrimary
 import com.example.ui.theme.WarmBorderLight
 import com.example.ui.theme.WarmCardBgLight
+import com.example.util.FileValidationResult
 import com.example.util.PdfEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -119,69 +120,17 @@ data class SelectedFileModel(
     val uri: Uri? = null
 )
 
-private sealed class FileValidationResult {
-    object Valid : FileValidationResult()
-    data class Invalid(val reason: String) : FileValidationResult()
-}
-
 private fun validateFileForTool(
     file: File,
     toolId: String,
     alreadySelectedFiles: List<SelectedFileModel>
 ): FileValidationResult {
-    // 1. Max file count limit check (50 files max)
-    if (alreadySelectedFiles.size >= 50) {
-        return FileValidationResult.Invalid("Maximum limit of 50 files reached.")
-    }
-
-    // 2. Duplicate detection check
-    val isDuplicate = alreadySelectedFiles.any { existing ->
-        existing.localPath == file.absolutePath ||
-        (existing.name.equals(file.name, ignoreCase = true) && File(existing.localPath).length() == file.length())
-    }
-    if (isDuplicate) {
-        return FileValidationResult.Invalid("Duplicate file '${file.name}' is already added.")
-    }
-
-    // 3. Empty (0 KB) file check
-    if (!file.exists() || file.length() == 0L) {
-        return FileValidationResult.Invalid("File '${file.name}' is empty (0 KB).")
-    }
-
-    // 4. Format & extension check
-    if (toolId == "image_to_pdf") {
-        if (!PdfEngine.isValidImageFile(file)) {
-            return FileValidationResult.Invalid("File '${file.name}' is not a supported image file.")
-        }
-    } else {
-        if (!PdfEngine.isValidPdfFile(file)) {
-            return FileValidationResult.Invalid("File '${file.name}' is not a valid PDF file.")
-        }
-    }
-
-    // 5. Password protection check
-    if (toolId != "password" && PdfEngine.isValidPdfFile(file) && PdfEngine.isPasswordProtected(file)) {
-        return FileValidationResult.Invalid("File '${file.name}' is password protected. Please remove password protection before merging.")
-    }
-
-    // 6. Corrupted PDF check
-    if (PdfEngine.isValidPdfFile(file)) {
-        try {
-            if (!PdfEngine.isPasswordProtected(file)) {
-                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
-                    PdfRenderer(pfd).use { renderer ->
-                        if (renderer.pageCount <= 0) {
-                            return FileValidationResult.Invalid("File '${file.name}' contains no readable PDF pages.")
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            return FileValidationResult.Invalid("File '${file.name}' appears to be corrupted or unreadable.")
-        }
-    }
-
-    return FileValidationResult.Valid
+    return PdfEngine.validateFileForTool(
+        file = file,
+        toolId = toolId,
+        alreadySelectedCount = alreadySelectedFiles.size,
+        alreadySelectedFiles = alreadySelectedFiles.map { File(it.localPath) }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

@@ -31,7 +31,80 @@ data class LocalPdfInfo(
     val sizeBytes: Long
 )
 
+sealed class FileValidationResult {
+    object Valid : FileValidationResult()
+    data class Invalid(val reason: String) : FileValidationResult()
+}
+
 object PdfEngine {
+
+    fun validateFileForTool(
+        file: File,
+        toolId: String,
+        alreadySelectedCount: Int = 0,
+        alreadySelectedFiles: List<File> = emptyList()
+    ): FileValidationResult {
+        // 1. Max file count limit check (50 files max)
+        if (alreadySelectedCount >= 50) {
+            return FileValidationResult.Invalid("Maximum limit of 50 files reached.")
+        }
+
+        // 2. Duplicate detection check
+        val isDuplicate = alreadySelectedFiles.any { existing ->
+            existing.absolutePath == file.absolutePath ||
+            (existing.name.equals(file.name, ignoreCase = true) && existing.length() == file.length())
+        }
+        if (isDuplicate) {
+            return FileValidationResult.Invalid("Duplicate file '${file.name}' is already added.")
+        }
+
+        // 3. Empty (0 KB) file check
+        if (!file.exists() || file.length() == 0L) {
+            return FileValidationResult.Invalid("File '${file.name}' is empty (0 KB).")
+        }
+
+        // 4. Format & extension check: Only .pdf files allowed (except image_to_pdf)
+        if (toolId == "image_to_pdf") {
+            if (!isValidImageFile(file)) {
+                return FileValidationResult.Invalid("File '${file.name}' is not a supported image file.")
+            }
+        } else {
+            if (!isValidPdfFile(file)) {
+                return FileValidationResult.Invalid("Only .pdf files are accepted for this tool.")
+            }
+        }
+
+        // 5. Password protection check
+        if (toolId != "password" && isValidPdfFile(file) && isPasswordProtected(file)) {
+            return FileValidationResult.Invalid("File '${file.name}' is password protected. Please remove password protection first.")
+        }
+
+        // 6. Corrupted PDF & Readability check
+        if (isValidPdfFile(file)) {
+            try {
+                if (!isPasswordProtected(file)) {
+                    var pageCount = 0
+                    ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
+                        PdfRenderer(pfd).use { renderer ->
+                            pageCount = renderer.pageCount
+                        }
+                    }
+                    if (pageCount <= 0) {
+                        return FileValidationResult.Invalid("File '${file.name}' contains no readable PDF pages.")
+                    }
+
+                    // 7. Minimum 2 pages requirement for split, delete, and rearrange tools
+                    if ((toolId == "split" || toolId == "delete" || toolId == "rearrange") && pageCount < 2) {
+                        return FileValidationResult.Invalid("PDF must have at least 2 pages for this tool (File '${file.name}' has only $pageCount page).")
+                    }
+                }
+            } catch (e: Exception) {
+                return FileValidationResult.Invalid("File '${file.name}' is corrupted or unreadable.")
+            }
+        }
+
+        return FileValidationResult.Valid
+    }
 
     fun savePdfToDownloads(context: Context, pdfFile: File, displayName: String? = null): Boolean {
         if (!pdfFile.exists() || pdfFile.length() == 0L) return false
