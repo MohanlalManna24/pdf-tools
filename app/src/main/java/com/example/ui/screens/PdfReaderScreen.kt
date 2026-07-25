@@ -18,6 +18,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -729,13 +730,18 @@ fun PdfReaderScreen(
             }
         }
     ) { innerPadding ->
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            LazyColumn(
-                state = listState,
+            val containerWidth = constraints.maxWidth.toFloat()
+            val containerHeight = constraints.maxHeight.toFloat()
+
+            val maxPanX = (containerWidth * (scale - 1f)) / 2f
+            val maxPanY = (containerHeight * (scale - 1f)) / 2f
+
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(Unit) {
@@ -743,8 +749,10 @@ fun PdfReaderScreen(
                             val newScale = (scale * zoom).coerceIn(1f, 4.5f)
                             scale = newScale
                             if (newScale > 1f) {
-                                offsetX += pan.x
-                                offsetY += pan.y
+                                val limitX = (containerWidth * (newScale - 1f)) / 2f
+                                val limitY = (containerHeight * (newScale - 1f)) / 2f
+                                offsetX = (offsetX + pan.x).coerceIn(-limitX, limitX)
+                                offsetY = (offsetY + pan.y).coerceIn(-limitY, limitY)
                             } else {
                                 offsetX = 0f
                                 offsetY = 0f
@@ -759,149 +767,189 @@ fun PdfReaderScreen(
                                     offsetX = 0f
                                     offsetY = 0f
                                 } else {
-                                    scale = 2.2f
+                                    scale = 2.0f
+                                    val limitX = (containerWidth * (2f - 1f)) / 2f
+                                    val limitY = (containerHeight * (2f - 1f)) / 2f
+                                    offsetX = offsetX.coerceIn(-limitX, limitX)
+                                    offsetY = offsetY.coerceIn(-limitY, limitY)
                                 }
                             }
                         )
-                    },
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                items(totalPages) { pageIndex ->
-                    val renderedBitmap = renderedPages[pageIndex]
-
-                    val pageAspectRatio = if (renderedBitmap != null && renderedBitmap.height > 0) {
-                        renderedBitmap.width.toFloat() / renderedBitmap.height.toFloat()
-                    } else {
-                        1f / 1.414f // Standard document A4 aspect ratio
                     }
+            ) {
+                LazyColumn(
+                    state = listState,
+                    userScrollEnabled = scale == 1f,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer(
+                            scaleX = scale,
+                            scaleY = scale,
+                            translationX = if (scale > 1f) offsetX.coerceIn(-maxPanX, maxPanX) else 0f,
+                            translationY = if (scale > 1f) offsetY.coerceIn(-maxPanY, maxPanY) else 0f
+                        ),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    items(totalPages) { pageIndex ->
+                        val renderedBitmap = renderedPages[pageIndex]
 
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(pageAspectRatio)
-                            .graphicsLayer(
-                                scaleX = scale,
-                                scaleY = scale,
-                                translationX = if (scale > 1f) offsetX else 0f,
-                                translationY = if (scale > 1f) offsetY else 0f
-                            ),
-                        shape = RoundedCornerShape(4.dp),
-                        color = cardBgColor,
-                        shadowElevation = if (isNightMode) 2.dp else 4.dp
-                    ) {
-                        if (renderedBitmap != null) {
-                            Image(
-                                bitmap = renderedBitmap.asImageBitmap(),
-                                contentDescription = "Page ${pageIndex + 1}",
-                                contentScale = ContentScale.FillWidth,
-                                modifier = Modifier.fillMaxSize()
-                            )
+                        val pageAspectRatio = if (renderedBitmap != null && renderedBitmap.height > 0) {
+                            renderedBitmap.width.toFloat() / renderedBitmap.height.toFloat()
                         } else {
-                            // Loading page placeholder
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(cardBgColor),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    CircularProgressIndicator(
-                                        color = RedPrimary,
-                                        modifier = Modifier.size(36.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    Text(
-                                        text = "Rendering Page ${pageIndex + 1} of $totalPages...",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = Color.Gray
-                                    )
+                            1f / 1.414f // Standard document A4 aspect ratio
+                        }
+
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(pageAspectRatio),
+                            shape = RoundedCornerShape(4.dp),
+                            color = cardBgColor,
+                            shadowElevation = if (isNightMode) 2.dp else 4.dp
+                        ) {
+                            if (renderedBitmap != null) {
+                                Image(
+                                    bitmap = renderedBitmap.asImageBitmap(),
+                                    contentDescription = "Page ${pageIndex + 1}",
+                                    contentScale = ContentScale.FillWidth,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                // Loading page placeholder
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(cardBgColor),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        CircularProgressIndicator(
+                                            color = RedPrimary,
+                                            modifier = Modifier.size(36.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Text(
+                                            text = "Rendering Page ${pageIndex + 1} of $totalPages...",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = Color.Gray
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            // Floating Zoom Controls (+ / - / Reset)
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(bottom = 16.dp, end = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                horizontalAlignment = Alignment.End
-            ) {
-                AnimatedVisibility(visible = scale > 1.05f) {
-                    Surface(
-                        onClick = {
-                            scale = 1f
-                            offsetX = 0f
-                            offsetY = 0f
-                        },
-                        shape = RoundedCornerShape(20.dp),
-                        color = RedPrimary,
-                        contentColor = Color.White,
-                        shadowElevation = 6.dp
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.RestartAlt,
-                                contentDescription = "Reset Zoom",
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Reset (${String.format("%.1f", scale)}x)",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                // Floating Zoom Controls (+ / - / Reset)
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(bottom = 16.dp, end = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalAlignment = Alignment.End
                 ) {
-                    Surface(
-                        onClick = {
-                            scale = (scale - 0.5f).coerceAtLeast(1f)
-                            if (scale == 1f) {
+                    AnimatedVisibility(visible = scale > 1.05f) {
+                        Surface(
+                            onClick = {
+                                scale = 1f
                                 offsetX = 0f
                                 offsetY = 0f
-                            }
-                        },
-                        shape = CircleShape,
-                        color = Color.White,
-                        shadowElevation = 4.dp,
-                        border = BorderStroke(1.dp, WarmBorderLight)
-                    ) {
-                        Box(
-                            modifier = Modifier.size(38.dp),
-                            contentAlignment = Alignment.Center
+                            },
+                            shape = RoundedCornerShape(20.dp),
+                            color = RedPrimary,
+                            contentColor = Color.White,
+                            shadowElevation = 6.dp
                         ) {
-                            Icon(Icons.Filled.Remove, contentDescription = "Zoom Out", tint = Color.DarkGray)
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.RestartAlt,
+                                    contentDescription = "Reset Zoom",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Reset (${(scale * 100).toInt()}%)",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
 
-                    Surface(
-                        onClick = {
-                            scale = (scale + 0.5f).coerceAtMost(4.5f)
-                        },
-                        shape = CircleShape,
-                        color = Color.White,
-                        shadowElevation = 4.dp,
-                        border = BorderStroke(1.dp, WarmBorderLight)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(
-                            modifier = Modifier.size(38.dp),
-                            contentAlignment = Alignment.Center
+                        // Zoom Percentage Display
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color.White,
+                            shadowElevation = 4.dp,
+                            border = BorderStroke(1.dp, WarmBorderLight)
                         ) {
-                            Icon(Icons.Filled.Add, contentDescription = "Zoom In", tint = RedPrimary)
+                            Text(
+                                text = "${(scale * 100).toInt()}%",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF1C1B1F),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                            )
+                        }
+
+                        // Zoom Out (-) Button
+                        Surface(
+                            onClick = {
+                                val targetScale = (scale - 0.5f).coerceAtLeast(1f)
+                                scale = targetScale
+                                if (targetScale == 1f) {
+                                    offsetX = 0f
+                                    offsetY = 0f
+                                } else {
+                                    val limitX = (containerWidth * (targetScale - 1f)) / 2f
+                                    val limitY = (containerHeight * (targetScale - 1f)) / 2f
+                                    offsetX = offsetX.coerceIn(-limitX, limitX)
+                                    offsetY = offsetY.coerceIn(-limitY, limitY)
+                                }
+                            },
+                            shape = CircleShape,
+                            color = Color.White,
+                            shadowElevation = 4.dp,
+                            border = BorderStroke(1.dp, WarmBorderLight)
+                        ) {
+                            Box(
+                                modifier = Modifier.size(38.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Filled.Remove, contentDescription = "Zoom Out", tint = Color.DarkGray)
+                            }
+                        }
+
+                        // Zoom In (+) Button
+                        Surface(
+                            onClick = {
+                                val targetScale = (scale + 0.5f).coerceAtMost(4.5f)
+                                scale = targetScale
+                                val limitX = (containerWidth * (targetScale - 1f)) / 2f
+                                val limitY = (containerHeight * (targetScale - 1f)) / 2f
+                                offsetX = offsetX.coerceIn(-limitX, limitX)
+                                offsetY = offsetY.coerceIn(-limitY, limitY)
+                            },
+                            shape = CircleShape,
+                            color = Color.White,
+                            shadowElevation = 4.dp,
+                            border = BorderStroke(1.dp, WarmBorderLight)
+                        ) {
+                            Box(
+                                modifier = Modifier.size(38.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Filled.Add, contentDescription = "Zoom In", tint = RedPrimary)
+                            }
                         }
                     }
                 }

@@ -38,6 +38,13 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import java.util.UUID
 
+data class UserProfile(
+    val name: String = "Guest Account",
+    val email: String = "guest@pdftools.local",
+    val accountType: String = "Guest User",
+    val phone: String = ""
+)
+
 sealed interface ProcessingUiState {
     object Idle : ProcessingUiState
     data class Processing(val toolName: String, val progress: Float) : ProcessingUiState
@@ -107,6 +114,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val app = getApplication<Application>()
         BatteryOptimizationManager.setRequireChargingEnabled(app, enabled)
         _requireCharging.value = enabled
+    }
+
+    // User Profile State
+    private val profilePrefs = application.getSharedPreferences("user_profile_prefs", android.content.Context.MODE_PRIVATE)
+
+    private val _userProfile = MutableStateFlow(
+        UserProfile(
+            name = profilePrefs.getString("user_name", "Guest Account") ?: "Guest Account",
+            email = profilePrefs.getString("user_email", "guest@pdftools.local") ?: "guest@pdftools.local",
+            accountType = profilePrefs.getString("account_type", "Guest User") ?: "Guest User",
+            phone = profilePrefs.getString("user_phone", "") ?: ""
+        )
+    )
+    val userProfile: StateFlow<UserProfile> = _userProfile.asStateFlow()
+
+    fun updateUserProfile(name: String, email: String, phone: String, accountType: String = _userProfile.value.accountType) {
+        val newProfile = UserProfile(
+            name = name.ifBlank { "Guest Account" },
+            email = email.ifBlank { "guest@pdftools.local" },
+            accountType = accountType.ifBlank { "Guest User" },
+            phone = phone.trim()
+        )
+        profilePrefs.edit()
+            .putString("user_name", newProfile.name)
+            .putString("user_email", newProfile.email)
+            .putString("account_type", newProfile.accountType)
+            .putString("user_phone", newProfile.phone)
+            .apply()
+        _userProfile.value = newProfile
+    }
+
+    fun resetToGuestAccount() {
+        profilePrefs.edit().clear().apply()
+        _userProfile.value = UserProfile()
     }
 
     // Recent Files

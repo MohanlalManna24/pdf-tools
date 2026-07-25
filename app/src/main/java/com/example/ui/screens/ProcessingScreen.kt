@@ -140,22 +140,6 @@ fun ProcessingScreen(
                 textAlign = TextAlign.Center
             )
 
-            if (toolName.contains("WorkManager") || toolName.contains("Eco CPU")) {
-                Spacer(modifier = Modifier.height(14.dp))
-                Box(
-                    modifier = Modifier
-                        .background(Color(0xFFE8F5E9), shape = RoundedCornerShape(12.dp))
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = "⚡ Battery Saver Active • WorkManager Throttled",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF2E7D32)
-                    )
-                }
-            }
-
             Spacer(modifier = Modifier.height(64.dp))
 
             // Cancel Pill Outlined Button (Matches Image 6)
