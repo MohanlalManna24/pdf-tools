@@ -3,7 +3,6 @@ package com.example.ui.screens
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import com.example.ui.components.AiAssistantBottomSheet
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -123,7 +122,6 @@ fun HomeScreen(
     val allFiles by viewModel.allFiles.collectAsState()
 
     var pdfToRename by remember { mutableStateOf<PdfEntity?>(null) }
-    var showAiBottomSheet by remember { mutableStateOf(false) }
 
     val pdfPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -133,13 +131,6 @@ fun HomeScreen(
                 onOpenPdf(importedPdf)
             }
         }
-    }
-
-    if (showAiBottomSheet) {
-        AiAssistantBottomSheet(
-            documentContextText = "Selected recent documents count: ${allFiles.size}",
-            onDismiss = { showAiBottomSheet = false }
-        )
     }
 
     val pdfForDialog = pdfToRename
@@ -221,17 +212,6 @@ fun HomeScreen(
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = { showAiBottomSheet = true },
-                        modifier = Modifier.testTag("home_ai_studio_btn")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.AutoAwesome,
-                            contentDescription = "Gemini AI Studio",
-                            tint = RedPrimary,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
                     IconButton(
                         onClick = { onOpenProfile?.invoke() ?: onViewAllRecent() },
                         modifier = Modifier.testTag("home_profile_icon_btn")

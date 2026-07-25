@@ -115,7 +115,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.example.data.db.PdfEntity
-import com.example.ui.components.AiAssistantBottomSheet
 import com.example.ui.components.DeleteConfirmDialog
 import com.example.ui.components.PdfDetailsDialog
 import com.example.ui.components.RenamePdfDialog
@@ -202,7 +201,6 @@ fun PdfReaderScreen(
     var showDetailsDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showJumpDialog by remember { mutableStateOf(false) }
-    var showAiBottomSheet by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
 
     // Smooth pinch zoom & pan transformation states
@@ -365,13 +363,6 @@ fun PdfReaderScreen(
         return
     }
 
-    if (showAiBottomSheet) {
-        AiAssistantBottomSheet(
-            documentContextText = pdf.extractedText ?: "Document title: $documentTitle, Page count: $totalPages",
-            onDismiss = { showAiBottomSheet = false }
-        )
-    }
-
     if (showRenameDialog) {
         RenamePdfDialog(
             currentTitle = pdf.title,
@@ -501,13 +492,6 @@ fun PdfReaderScreen(
                             Icon(
                                 imageVector = Icons.Filled.FolderOpen,
                                 contentDescription = "Open Local PDF",
-                                tint = RedPrimary
-                            )
-                        }
-                        IconButton(onClick = { showAiBottomSheet = true }) {
-                            Icon(
-                                imageVector = Icons.Filled.AutoAwesome,
-                                contentDescription = "Gemini AI",
                                 tint = RedPrimary
                             )
                         }

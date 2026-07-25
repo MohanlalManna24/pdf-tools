@@ -457,17 +457,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     "pdf_to_image" -> {
                         val firstPath = titlesOrPaths.firstOrNull() ?: ""
-                        val sourceFile = File(firstPath)
-                        val bitmaps = mutableListOf<Bitmap>()
-                        if (sourceFile.exists()) {
-                            val count = PdfEngine.getPdfPageCount(sourceFile)
-                            for (p in 0 until count) {
-                                val bmp = PdfEngine.renderPageToBitmap(sourceFile, p, 1000)
-                                if (bmp != null) bitmaps.add(bmp)
-                            }
-                        }
-                        resultInfo = PdfEngine.convertImagesToPdf(context, bitmaps)
-                        displayTitle = "Exported_Images_${System.currentTimeMillis().toString().takeLast(4)}.pdf"
+                        resultInfo = PdfEngine.exportPdfToImages(context, firstPath)
+                        displayTitle = resultInfo.file.name
                     }
                     "watermark" -> {
                         val firstPath = titlesOrPaths.firstOrNull() ?: ""

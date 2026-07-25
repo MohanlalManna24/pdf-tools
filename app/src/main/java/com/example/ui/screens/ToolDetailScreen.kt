@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MergeType
 import androidx.compose.material.icons.filled.PictureAsPdf
@@ -185,14 +186,15 @@ fun ToolDetailScreen(
         uris.forEach { uri ->
             val tempFile = PdfEngine.getFileFromUri(context, uri)
             if (tempFile != null) {
-                val pages = PdfEngine.getPdfPageCount(tempFile)
+                val isImageTool = toolId == "image_to_pdf"
+                val pages = if (isImageTool) 1 else PdfEngine.getPdfPageCount(tempFile)
                 val sizeKb = (tempFile.length() / 1024).coerceAtLeast(1)
                 val sizeFormatted = if (sizeKb > 1024) "${String.format("%.1f", sizeKb / 1024.0)} MB" else "$sizeKb KB"
                 selectedFiles.add(
                     SelectedFileModel(
                         name = tempFile.name,
                         sizeText = sizeFormatted,
-                        pageCountText = "$pages pages",
+                        pageCountText = if (isImageTool) "Image file" else "$pages pages",
                         localPath = tempFile.absolutePath,
                         uri = uri
                     )
@@ -288,7 +290,10 @@ fun ToolDetailScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { documentPicker.launch("application/pdf") }) {
+                    IconButton(onClick = {
+                        val targetMime = if (toolId == "image_to_pdf") "image/*" else "application/pdf"
+                        documentPicker.launch(targetMime)
+                    }) {
                         Icon(
                             imageVector = Icons.Filled.Search,
                             contentDescription = "Search / Import",
@@ -1242,61 +1247,115 @@ fun ToolDetailScreen(
                                 .fillMaxWidth()
                                 .padding(16.dp)
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(bottom = 12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "${selectedFiles.size} Files Selected",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF1C1B1F)
-                                )
-                                Text(
-                                    text = "Clear All",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = RedPrimary,
+                            if (selectedFiles.isEmpty()) {
+                                Column(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .clickable { selectedFiles.clear() }
-                                        .padding(4.dp)
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            val targetMime = if (toolId == "image_to_pdf") "image/*" else "application/pdf"
+                                            documentPicker.launch(targetMime)
+                                        }
+                                        .padding(20.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(56.dp)
+                                            .clip(CircleShape)
+                                            .background(RedPrimary.copy(alpha = 0.12f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = if (toolId == "image_to_pdf") Icons.Filled.Image else Icons.Filled.FolderOpen,
+                                            contentDescription = null,
+                                            tint = RedPrimary,
+                                            modifier = Modifier.size(28.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text(
+                                        text = if (toolId == "image_to_pdf") "Select Images from Gallery" else "Select Document",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp,
+                                        color = Color(0xFF1C1B1F)
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = if (toolId == "image_to_pdf") "Tap to choose image files to convert" else "Tap to choose PDF file from storage",
+                                        fontSize = 12.sp,
+                                        color = Color.Gray
+                                    )
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Button(
+                                        onClick = {
+                                            val targetMime = if (toolId == "image_to_pdf") "image/*" else "application/pdf"
+                                            documentPicker.launch(targetMime)
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = RedPrimary),
+                                        shape = RoundedCornerShape(20.dp)
+                                    ) {
+                                        Icon(imageVector = Icons.Filled.Add, contentDescription = null, tint = Color.White)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(if (toolId == "image_to_pdf") "Choose Images" else "Choose File", fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            } else {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "${selectedFiles.size} ${if (toolId == "image_to_pdf") "Images" else "Files"} Selected",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF1C1B1F)
+                                    )
+                                    Text(
+                                        text = "Clear All",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = RedPrimary,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .clickable { selectedFiles.clear() }
+                                            .padding(4.dp)
+                                    )
+                                }
+
+                                HorizontalDivider(color = WarmBorderLight, thickness = 1.dp)
+
+                                selectedFiles.forEachIndexed { index, file ->
+                                    SelectedFileListItem(
+                                        pdfName = file.name,
+                                        sizeText = file.sizeText,
+                                        pageCountText = file.pageCountText,
+                                        onRemove = { selectedFiles.removeAt(index) }
+                                    )
+                                    if (index < selectedFiles.size - 1) {
+                                        HorizontalDivider(color = WarmBorderLight, thickness = 1.dp)
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                // "+ ADD MORE FILES" Button
+                                AddMoreFilesCard(
+                                    onClick = {
+                                        val targetMime = if (toolId == "image_to_pdf") "image/*" else "application/pdf"
+                                        documentPicker.launch(targetMime)
+                                    }
                                 )
                             }
-
-                            HorizontalDivider(color = WarmBorderLight, thickness = 1.dp)
-
-                            selectedFiles.forEachIndexed { index, file ->
-                                SelectedFileListItem(
-                                    pdfName = file.name,
-                                    sizeText = file.sizeText,
-                                    pageCountText = file.pageCountText,
-                                    onRemove = { selectedFiles.removeAt(index) }
-                                )
-                                if (index < selectedFiles.size - 1) {
-                                    HorizontalDivider(color = WarmBorderLight, thickness = 1.dp)
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(14.dp))
-
-                            // "+ ADD MORE FILES" Button
-                            AddMoreFilesCard(
-                                onClick = {
-                                    val targetMime = if (toolId == "image_to_pdf") "image/*" else "application/pdf"
-                                    documentPicker.launch(targetMime)
-                                }
-                            )
                         }
                     }
                 }
             }
 
             // Suggested App PDFs (Clean full width layout like Delete / Rearrange page)
-            if (allPdfs.isNotEmpty()) {
+            if (allPdfs.isNotEmpty() && toolId != "image_to_pdf") {
                 item {
                     Column(
                         modifier = Modifier

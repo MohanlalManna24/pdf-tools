@@ -98,6 +98,14 @@ class PdfWorker(
                     sizeBytes = info.sizeBytes
                     pageCount = info.pageCount
                 }
+                "pdf_to_image" -> {
+                    val firstPath = pathsList.firstOrNull() ?: ""
+                    val info = PdfEngine.exportPdfToImages(appContext, firstPath)
+                    resultPath = info.file.absolutePath
+                    displayTitle = info.file.name
+                    sizeBytes = info.sizeBytes
+                    pageCount = info.pageCount
+                }
                 "image_to_pdf" -> {
                     val imageBitmaps = mutableListOf<Bitmap>()
                     pathsList.forEach { path ->

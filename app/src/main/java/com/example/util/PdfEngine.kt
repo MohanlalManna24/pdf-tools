@@ -132,6 +132,8 @@ object PdfEngine {
 
     fun isPasswordProtected(file: File): Boolean {
         if (!file.exists() || file.length() == 0L) return false
+        val lowerName = file.name.lowercase()
+        if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg") || lowerName.endsWith(".png") || lowerName.endsWith(".zip")) return false
         try {
             val reader = PdfReader(file.absolutePath)
             val encrypted = reader.isEncrypted
@@ -216,6 +218,22 @@ object PdfEngine {
      */
     fun getPdfPageCount(file: File, passwordText: String? = null): Int {
         if (!file.exists() || file.length() == 0L) return 1
+        val lowerName = file.name.lowercase()
+        if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg") || lowerName.endsWith(".png")) return 1
+        if (lowerName.endsWith(".zip")) {
+            return try {
+                var count = 0
+                java.util.zip.ZipInputStream(file.inputStream()).use { zip ->
+                    var entry = zip.nextEntry
+                    while (entry != null) {
+                        if (!entry.isDirectory && (entry.name.endsWith(".jpg") || entry.name.endsWith(".jpeg") || entry.name.endsWith(".png"))) count++
+                        entry = zip.nextEntry
+                    }
+                }
+                count.coerceAtLeast(1)
+            } catch (e: Exception) { 1 }
+        }
+
         var targetFile = file
         var tempUnlockedFile: File? = null
 
@@ -255,6 +273,31 @@ object PdfEngine {
      */
     fun renderPageToBitmap(file: File, pageIndex: Int, width: Int = 800, passwordText: String? = null): Bitmap? {
         if (!file.exists()) return null
+        val lowerName = file.name.lowercase()
+        if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg") || lowerName.endsWith(".png")) {
+            return try {
+                BitmapFactory.decodeFile(file.absolutePath)
+            } catch (e: Exception) {
+                null
+            }
+        }
+        if (lowerName.endsWith(".zip")) {
+            return try {
+                java.util.zip.ZipInputStream(file.inputStream()).use { zip ->
+                    var entry = zip.nextEntry
+                    while (entry != null) {
+                        if (!entry.isDirectory && (entry.name.endsWith(".jpg") || entry.name.endsWith(".jpeg") || entry.name.endsWith(".png"))) {
+                            return BitmapFactory.decodeStream(zip)
+                        }
+                        entry = zip.nextEntry
+                    }
+                    null
+                }
+            } catch (e: Exception) {
+                null
+            }
+        }
+
         var targetFile = file
         var tempUnlockedFile: File? = null
 
@@ -1143,6 +1186,67 @@ object PdfEngine {
         document.close()
 
         LocalPdfInfo(outputFile, 1, outputFile.length())
+    }
+
+    /**
+     * EXPORT PDF PAGES TO IMAGES (JPG / ZIP)
+     */
+    suspend fun exportPdfToImages(context: Context, sourcePath: String): LocalPdfInfo = withContext(Dispatchers.IO) {
+        val sourceFile = File(sourcePath)
+        if (!sourceFile.exists()) {
+            val sampleJpg = File(context.filesDir, "Extracted_Image_${System.currentTimeMillis().toString().takeLast(4)}.jpg")
+            val bmp = createSampleImageBitmap()
+            FileOutputStream(sampleJpg).use { out -> bmp.compress(Bitmap.CompressFormat.JPEG, 90, out) }
+            return@withContext LocalPdfInfo(sampleJpg, 1, sampleJpg.length())
+        }
+
+        val pageCount = getPdfPageCount(sourceFile)
+        val tempDir = File(context.cacheDir, "extracted_pages_${System.currentTimeMillis()}")
+        tempDir.mkdirs()
+
+        val extractedImages = mutableListOf<File>()
+        for (p in 0 until pageCount) {
+            val bmp = renderPageToBitmap(sourceFile, p, width = 1200) ?: continue
+            val pageImgFile = File(tempDir, "Page_${p + 1}.jpg")
+            FileOutputStream(pageImgFile).use { out ->
+                bmp.compress(Bitmap.CompressFormat.JPEG, 92, out)
+            }
+            extractedImages.add(pageImgFile)
+        }
+
+        if (extractedImages.isEmpty()) {
+            val sampleJpg = File(context.filesDir, "Extracted_Image_${System.currentTimeMillis().toString().takeLast(4)}.jpg")
+            val bmp = createSampleImageBitmap()
+            FileOutputStream(sampleJpg).use { out -> bmp.compress(Bitmap.CompressFormat.JPEG, 90, out) }
+            tempDir.deleteRecursively()
+            return@withContext LocalPdfInfo(sampleJpg, 1, sampleJpg.length())
+        }
+
+        if (extractedImages.size == 1) {
+            val targetJpg = File(context.filesDir, "Extracted_Page_1_${System.currentTimeMillis().toString().takeLast(4)}.jpg")
+            extractedImages.first().copyTo(targetJpg, overwrite = true)
+            tempDir.deleteRecursively()
+            LocalPdfInfo(targetJpg, 1, targetJpg.length())
+        } else {
+            val zipFile = File(context.filesDir, "Extracted_Images_${System.currentTimeMillis().toString().takeLast(4)}.zip")
+            try {
+                java.util.zip.ZipOutputStream(FileOutputStream(zipFile)).use { zipOut ->
+                    extractedImages.forEach { imgFile ->
+                        val entry = java.util.zip.ZipEntry(imgFile.name)
+                        zipOut.putNextEntry(entry)
+                        imgFile.inputStream().use { input -> input.copyTo(zipOut) }
+                        zipOut.closeEntry()
+                    }
+                }
+                tempDir.deleteRecursively()
+                LocalPdfInfo(zipFile, extractedImages.size, zipFile.length())
+            } catch (e: Exception) {
+                val fallbackJpg = File(context.filesDir, "Extracted_Page_1_${System.currentTimeMillis().toString().takeLast(4)}.jpg")
+                extractedImages.first().copyTo(fallbackJpg, overwrite = true)
+                tempDir.deleteRecursively()
+                LocalPdfInfo(fallbackJpg, extractedImages.size, fallbackJpg.length())
+            }
+        }
     }
 
     /**
