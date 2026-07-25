@@ -125,14 +125,6 @@ class PdfWorker(
                     sizeBytes = info.sizeBytes
                     pageCount = info.pageCount
                 }
-                "ocr" -> {
-                    val text = if (extraParam.isNotBlank()) extraParam else PdfEngine.performLocalOcr(pathsList.firstOrNull() ?: "")
-                    val info = PdfEngine.createPdfFromText(appContext, "OCR Extracted Text", text)
-                    resultPath = info.file.absolutePath
-                    displayTitle = "OCR_BG_${System.currentTimeMillis().toString().takeLast(4)}.pdf"
-                    sizeBytes = info.sizeBytes
-                    pageCount = info.pageCount
-                }
                 else -> {
                     val info = PdfEngine.mergePdfs(appContext, pathsList)
                     resultPath = info.file.absolutePath
@@ -161,7 +153,7 @@ class PdfWorker(
                 dateModifiedFormatted = "Just now",
                 timestamp = System.currentTimeMillis(),
                 category = toolId.uppercase(),
-                extractedText = if (toolId == "ocr") extraParam else null
+                extractedText = null
             )
 
             repository.insertPdf(newEntity)

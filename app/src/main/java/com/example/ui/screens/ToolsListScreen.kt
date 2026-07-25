@@ -110,11 +110,10 @@ fun ToolsListScreen(
         FullToolItem("Rearrange Pages", "Reorder page structure", Icons.Filled.Reorder, Color(0xFFE8EAF6), Color(0xFF283593), "rearrange"),
         FullToolItem("Watermark", "Add confidential text mark", Icons.Filled.WaterDrop, Color(0xFFFFF3E0), Color(0xFFE65100), "watermark"),
         FullToolItem("Password Protect", "Encrypt or lock files", Icons.Filled.Lock, Color(0xFFECEFF1), Color(0xFF37474F), "password"),
-        FullToolItem("Scanner", "Scan paper docs with camera", Icons.Filled.DocumentScanner, ChipPurpleBg, ChipPurpleIcon, "scanner"),
-        FullToolItem("OCR Extractor", "Recognize text from images", Icons.Filled.AutoAwesome, ChipDeepRedBg, ChipDeepRedIcon, "ocr")
+        FullToolItem("Scanner", "Scan paper docs with camera", Icons.Filled.DocumentScanner, ChipPurpleBg, ChipPurpleIcon, "scanner")
     )
 
-    val categories = listOf("All", "Convert & Edit", "Organize", "Security & AI")
+    val categories = listOf("All", "Convert & Edit", "Organize", "Security")
     var selectedCategory by remember { mutableStateOf("All") }
     var toolSearchQuery by remember { mutableStateOf("") }
 
@@ -122,7 +121,7 @@ fun ToolsListScreen(
         val categoryFiltered = when (selectedCategory) {
             "Convert & Edit" -> allTools.filter { it.id in listOf("merge", "split", "compress", "image_to_pdf", "pdf_to_image", "rotate") }
             "Organize" -> allTools.filter { it.id in listOf("reader", "delete", "rearrange", "scanner") }
-            "Security & AI" -> allTools.filter { it.id in listOf("watermark", "password", "ocr") }
+            "Security" -> allTools.filter { it.id in listOf("watermark", "password") }
             else -> allTools
         }
         if (toolSearchQuery.isBlank()) {

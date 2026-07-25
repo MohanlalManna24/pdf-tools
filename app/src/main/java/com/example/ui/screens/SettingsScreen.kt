@@ -278,7 +278,6 @@ fun SettingsScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("• Unlimited PDF Merge & Split", fontSize = 14.sp, color = Color(0xFF49454F))
-                    Text("• Fast OCR Text & Image Extraction", fontSize = 14.sp, color = Color(0xFF49454F))
                     Text("• Batch Camera Scanning & Auto-Crop", fontSize = 14.sp, color = Color(0xFF49454F))
                     Text("• 100% Secure & Private Local Processing", fontSize = 14.sp, color = Color(0xFF49454F))
                 }

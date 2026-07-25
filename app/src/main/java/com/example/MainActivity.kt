@@ -28,7 +28,6 @@ import com.example.ui.screens.AboutScreen
 import com.example.ui.screens.ErrorScreen
 import com.example.ui.screens.FilesScreen
 import com.example.ui.screens.HomeScreen
-import com.example.ui.screens.OcrReviewScreen
 import com.example.ui.screens.OnboardingScreen
 import com.example.ui.screens.PdfReaderScreen
 import com.example.ui.screens.PrivacyScreen
@@ -48,7 +47,6 @@ sealed class AppScreen {
     data class MainTab(val tab: NavTab) : AppScreen()
     data class ToolDetail(val toolId: String) : AppScreen()
     object Scanner : AppScreen()
-    object OcrReview : AppScreen()
     object PdfReader : AppScreen()
     object Privacy : AppScreen()
     object About : AppScreen()
@@ -197,7 +195,6 @@ class MainActivity : ComponentActivity() {
                                                         onSelectTool = { toolId ->
                                                             when (toolId) {
                                                                 "scanner" -> navigateTo(AppScreen.Scanner)
-                                                                "ocr" -> navigateTo(AppScreen.OcrReview)
                                                                 "reader" -> navigateTo(AppScreen.PdfReader)
                                                                 else -> navigateTo(AppScreen.ToolDetail(toolId))
                                                             }
@@ -220,7 +217,6 @@ class MainActivity : ComponentActivity() {
                                                         onSelectTool = { toolId ->
                                                             when (toolId) {
                                                                 "scanner" -> navigateTo(AppScreen.Scanner)
-                                                                "ocr" -> navigateTo(AppScreen.OcrReview)
                                                                 "reader" -> navigateTo(AppScreen.PdfReader)
                                                                 else -> navigateTo(AppScreen.ToolDetail(toolId))
                                                             }
@@ -281,15 +277,6 @@ class MainActivity : ComponentActivity() {
                                                 onClose = { navigateBack() },
                                                 onCompleteScan = {
                                                     navigateTo(AppScreen.PdfReader)
-                                                }
-                                            )
-                                        }
-
-                                        is AppScreen.OcrReview -> {
-                                            OcrReviewScreen(
-                                                onBack = { navigateBack() },
-                                                onSaveAsPdf = { extractedText ->
-                                                    viewModel.executeTool("ocr", listOf("Scanned_Invoice.pdf"), extractedText)
                                                 }
                                             )
                                         }

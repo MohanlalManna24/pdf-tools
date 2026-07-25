@@ -194,9 +194,6 @@ fun ScannerScreen(
 
     // Dialog & Sheet States
     var showRenameDialog by remember { mutableStateOf(false) }
-    var showOcrSheet by remember { mutableStateOf(false) }
-    var ocrExtractedText by remember { mutableStateOf("") }
-    var isOcrLoading by remember { mutableStateOf(false) }
 
     // Gallery Picker Launcher
     val galleryLauncher = rememberLauncherForActivityResult(
@@ -327,96 +324,6 @@ fun ScannerScreen(
                 Toast.makeText(context, "Renamed to $newName", Toast.LENGTH_SHORT).show()
             }
         )
-    }
-
-    // OCR Bottom Sheet
-    if (showOcrSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showOcrSheet = false },
-            containerColor = Color(0xFF1E1E1E)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.TextFields, contentDescription = null, tint = Color(0xFF2196F3))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Extracted OCR Text", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color.White)
-                    }
-                    IconButton(onClick = { showOcrSheet = false }) {
-                        Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                if (isOcrLoading) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(180.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("Extracting text from document...", color = Color.LightGray)
-                    }
-                } else {
-                    OutlinedTextField(
-                        value = ocrExtractedText,
-                        onValueChange = { ocrExtractedText = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF2196F3),
-                            unfocusedBorderColor = Color.Gray,
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        )
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                val clip = android.content.ClipData.newPlainText("OCR Text", ocrExtractedText)
-                                clipboard.setPrimaryClip(clip)
-                                Toast.makeText(context, "Text copied to clipboard", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(20.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-                        ) {
-                            Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Copy Text")
-                        }
-
-                        Button(
-                            onClick = { showOcrSheet = false },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(20.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))
-                        ) {
-                            Text("Done", fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-        }
     }
 
     Box(
@@ -1148,23 +1055,6 @@ fun ScannerScreen(
                         Icon(Icons.Filled.RotateRight, contentDescription = "Rotate", tint = Color.White, modifier = Modifier.size(22.dp))
                         Spacer(modifier = Modifier.height(4.dp))
                         Text("Rotate", color = Color.White, fontSize = 11.sp)
-                    }
-
-                    // OCR
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.clickable {
-                            if (activeBitmap != null) {
-                                isOcrLoading = true
-                                showOcrSheet = true
-                                ocrExtractedText = PdfEngine.performLocalOcr(documentTitle)
-                                isOcrLoading = false
-                            }
-                        }
-                    ) {
-                        Icon(Icons.Filled.Edit, contentDescription = "Edit text", tint = Color.White, modifier = Modifier.size(22.dp))
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text("Edit text", color = Color.White, fontSize = 11.sp)
                     }
 
                     // Enhance (Auto-Contrast)

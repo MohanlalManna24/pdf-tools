@@ -352,7 +352,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 "watermark" -> "Applying watermark overlay..."
                 "password" -> "Securing document..."
                 "scanner" -> "Saving high-res PDF scan..."
-                "ocr" -> "Extracting document text..."
                 else -> "Processing document..."
             }
 
@@ -481,11 +480,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         resultInfo = PdfEngine.convertImagesToPdf(context, imageBitmaps)
                         displayTitle = "ImageScan_${System.currentTimeMillis().toString().takeLast(4)}.pdf"
                     }
-                    "ocr" -> {
-                        val text = if (extraParam.isNotBlank()) extraParam else PdfEngine.performLocalOcr(titlesOrPaths.firstOrNull() ?: "")
-                        resultInfo = PdfEngine.createPdfFromText(context, "OCR Extracted Text", text)
-                        displayTitle = "OCR_Extracted_${System.currentTimeMillis().toString().takeLast(4)}.pdf"
-                    }
                     else -> {
                         resultInfo = PdfEngine.mergePdfs(context, titlesOrPaths)
                         displayTitle = "${toolId.replaceFirstChar { it.uppercase() }}_Result.pdf"
@@ -504,7 +498,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     dateModifiedFormatted = "Just now",
                     timestamp = System.currentTimeMillis(),
                     category = toolId.uppercase(),
-                    extractedText = if (toolId == "ocr") extraParam else null
+                    extractedText = null
                 )
 
                 val id = repository.insertPdf(newEntity)

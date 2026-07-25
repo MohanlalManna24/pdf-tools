@@ -153,8 +153,7 @@ fun HomeScreen(
             ToolItem("Image to PDF", Icons.Filled.Image, ChipOrangeBg, ChipOrangeIcon, "image_to_pdf"),
             ToolItem("PDF to Image", Icons.Filled.PictureAsPdf, ChipAmberBg, ChipAmberIcon, "pdf_to_image"),
             ToolItem("PDF Reader", Icons.Filled.ReadMore, ChipBlueBg, ChipBlueIcon, "reader"),
-            ToolItem("Scanner", Icons.Filled.DocumentScanner, ChipPurpleBg, ChipPurpleIcon, "scanner"),
-            ToolItem("OCR", Icons.Filled.AutoAwesome, ChipDeepRedBg, ChipDeepRedIcon, "ocr")
+            ToolItem("Scanner", Icons.Filled.DocumentScanner, ChipPurpleBg, ChipPurpleIcon, "scanner")
         )
     }
 
@@ -630,8 +629,7 @@ fun HomeScreen(
                         ToolItem("Image to PDF", Icons.Filled.Image, ChipOrangeBg, ChipOrangeIcon, "image_to_pdf"),
                         ToolItem("PDF to Image", Icons.Filled.PictureAsPdf, ChipAmberBg, ChipAmberIcon, "pdf_to_image"),
                         ToolItem("PDF Reader", Icons.Filled.ReadMore, ChipBlueBg, ChipBlueIcon, "reader"),
-                        ToolItem("Scanner", Icons.Filled.DocumentScanner, ChipPurpleBg, ChipPurpleIcon, "scanner"),
-                        ToolItem("OCR", Icons.Filled.AutoAwesome, ChipDeepRedBg, ChipDeepRedIcon, "ocr")
+                        ToolItem("Scanner", Icons.Filled.DocumentScanner, ChipPurpleBg, ChipPurpleIcon, "scanner")
                     )
 
                     for (i in tools.indices step 2) {

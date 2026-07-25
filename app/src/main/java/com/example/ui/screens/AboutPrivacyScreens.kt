@@ -100,10 +100,9 @@ fun PrivacyScreen(
             }
 
             val privacyPoints = listOf(
-                Pair("Zero Telemetry / Zero Cloud Uploads", "All PDF operations—including merging, OCR, scanning, compression, and password protection—run natively using Android local engines."),
-                Pair("On-Device ML Engine", "Optical Character Recognition (OCR) operates using on-device text recognition pipelines without sending image pixels to any cloud server."),
+                Pair("Zero Telemetry / Zero Cloud Uploads", "All PDF operations—including merging, scanning, compression, and password protection—run natively using Android local engines."),
                 Pair("No Account Required", "PDF Tools works out of the box with zero sign-ins, zero data harvesting, and zero tracking scripts."),
-                Pair("Military-Grade PDF Encryption", "Password protection uses standard PDF standard security mechanisms applied directly to local files.")
+                Pair("Military-Grade PDF Encryption", "Password protection uses standard PDF security mechanisms applied directly to local files.")
             )
 
             privacyPoints.forEach { (pointTitle, pointDesc) ->
