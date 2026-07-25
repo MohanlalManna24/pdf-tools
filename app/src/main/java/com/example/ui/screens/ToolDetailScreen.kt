@@ -2,7 +2,9 @@ package com.example.ui.screens
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.pdf.PdfRenderer
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -40,6 +42,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MergeType
 import androidx.compose.material.icons.filled.PictureAsPdf
@@ -116,6 +119,71 @@ data class SelectedFileModel(
     val uri: Uri? = null
 )
 
+private sealed class FileValidationResult {
+    object Valid : FileValidationResult()
+    data class Invalid(val reason: String) : FileValidationResult()
+}
+
+private fun validateFileForTool(
+    file: File,
+    toolId: String,
+    alreadySelectedFiles: List<SelectedFileModel>
+): FileValidationResult {
+    // 1. Max file count limit check (50 files max)
+    if (alreadySelectedFiles.size >= 50) {
+        return FileValidationResult.Invalid("Maximum limit of 50 files reached.")
+    }
+
+    // 2. Duplicate detection check
+    val isDuplicate = alreadySelectedFiles.any { existing ->
+        existing.localPath == file.absolutePath ||
+        (existing.name.equals(file.name, ignoreCase = true) && File(existing.localPath).length() == file.length())
+    }
+    if (isDuplicate) {
+        return FileValidationResult.Invalid("Duplicate file '${file.name}' is already added.")
+    }
+
+    // 3. Empty (0 KB) file check
+    if (!file.exists() || file.length() == 0L) {
+        return FileValidationResult.Invalid("File '${file.name}' is empty (0 KB).")
+    }
+
+    // 4. Format & extension check
+    if (toolId == "image_to_pdf") {
+        if (!PdfEngine.isValidImageFile(file)) {
+            return FileValidationResult.Invalid("File '${file.name}' is not a supported image file.")
+        }
+    } else {
+        if (!PdfEngine.isValidPdfFile(file)) {
+            return FileValidationResult.Invalid("File '${file.name}' is not a valid PDF file.")
+        }
+    }
+
+    // 5. Password protection check
+    if (toolId != "password" && PdfEngine.isValidPdfFile(file) && PdfEngine.isPasswordProtected(file)) {
+        return FileValidationResult.Invalid("File '${file.name}' is password protected. Please remove password protection before merging.")
+    }
+
+    // 6. Corrupted PDF check
+    if (PdfEngine.isValidPdfFile(file)) {
+        try {
+            if (!PdfEngine.isPasswordProtected(file)) {
+                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
+                    PdfRenderer(pfd).use { renderer ->
+                        if (renderer.pageCount <= 0) {
+                            return FileValidationResult.Invalid("File '${file.name}' contains no readable PDF pages.")
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            return FileValidationResult.Invalid("File '${file.name}' appears to be corrupted or unreadable.")
+        }
+    }
+
+    return FileValidationResult.Valid
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ToolDetailScreen(
@@ -189,36 +257,32 @@ fun ToolDetailScreen(
     val documentPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
     ) { uris ->
-        var rejectedCount = 0
         uris.forEach { uri ->
             val tempFile = PdfEngine.getFileFromUri(context, uri)
             if (tempFile != null) {
-                if (isFileSupportedForTool(toolId, tempFile)) {
-                    val isImage = toolId == "image_to_pdf" || (PdfEngine.isValidImageFile(tempFile) && !PdfEngine.isValidPdfFile(tempFile))
-                    val pages = if (isImage) 1 else PdfEngine.getPdfPageCount(tempFile)
-                    val sizeKb = (tempFile.length() / 1024).coerceAtLeast(1)
-                    val sizeFormatted = if (sizeKb > 1024) "${String.format("%.1f", sizeKb / 1024.0)} MB" else "$sizeKb KB"
-                    selectedFiles.add(
-                        SelectedFileModel(
-                            name = tempFile.name,
-                            sizeText = sizeFormatted,
-                            pageCountText = if (isImage) "Image file" else "$pages pages",
-                            localPath = tempFile.absolutePath,
-                            uri = uri
+                when (val result = validateFileForTool(tempFile, toolId, selectedFiles)) {
+                    is FileValidationResult.Valid -> {
+                        val isImage = toolId == "image_to_pdf" || (PdfEngine.isValidImageFile(tempFile) && !PdfEngine.isValidPdfFile(tempFile))
+                        val pages = if (isImage) 1 else PdfEngine.getPdfPageCount(tempFile)
+                        val sizeKb = (tempFile.length() / 1024).coerceAtLeast(1)
+                        val sizeFormatted = if (sizeKb > 1024) "${String.format("%.1f", sizeKb / 1024.0)} MB" else "$sizeKb KB"
+                        selectedFiles.add(
+                            SelectedFileModel(
+                                name = tempFile.name,
+                                sizeText = sizeFormatted,
+                                pageCountText = if (isImage) "Image file" else "$pages pages",
+                                localPath = tempFile.absolutePath,
+                                uri = uri
+                            )
                         )
-                    )
-                } else {
-                    rejectedCount++
+                    }
+                    is FileValidationResult.Invalid -> {
+                        Toast.makeText(context, result.reason, Toast.LENGTH_LONG).show()
+                    }
                 }
+            } else {
+                Toast.makeText(context, "Could not open selected file.", Toast.LENGTH_SHORT).show()
             }
-        }
-        if (rejectedCount > 0) {
-            val expectedDesc = getToolExpectedFormatDescription(toolId)
-            Toast.makeText(
-                context,
-                "$rejectedCount unsupported file(s) skipped. Please select $expectedDesc.",
-                Toast.LENGTH_LONG
-            ).show()
         }
     }
 
@@ -324,11 +388,16 @@ fun ToolDetailScreen(
             )
         },
         floatingActionButton = {
+            val isMergeTool = toolId == "merge"
+            val isButtonEnabled = if (isMergeTool) (selectedFiles.isEmpty() || selectedFiles.size >= 2) else true
+
             Button(
                 onClick = {
                     if (selectedFiles.isEmpty()) {
                         val targetMime = if (toolId == "image_to_pdf") "image/*" else "application/pdf"
                         documentPicker.launch(targetMime)
+                    } else if (isMergeTool && selectedFiles.size < 2) {
+                        Toast.makeText(context, "At least 2 PDF files are required for merging. Please select more files.", Toast.LENGTH_LONG).show()
                     } else {
                         val filePaths = selectedFiles.map { it.localPath }
                         val param = when(toolId) {
@@ -368,12 +437,18 @@ fun ToolDetailScreen(
                         onExecuteTool(filePaths, param)
                     }
                 },
+                enabled = isButtonEnabled,
                 modifier = Modifier
                     .padding(16.dp)
                     .height(54.dp)
                     .testTag("tool_action_btn"),
                 shape = RoundedCornerShape(28.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = RedPrimary),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isMergeTool && selectedFiles.size == 1) RedPrimary.copy(alpha = 0.5f) else RedPrimary,
+                    disabledContainerColor = RedPrimary.copy(alpha = 0.4f),
+                    contentColor = Color.White,
+                    disabledContentColor = Color.White.copy(alpha = 0.7f)
+                ),
                 elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp)
             ) {
                 Row(
@@ -402,7 +477,11 @@ fun ToolDetailScreen(
                                 else if (splitMode == "visual") "Split (${selectedPageIndices.size} Pages)"
                                 else "Split PDF Now"
                             }
-                            "merge" -> "Merge Now"
+                            "merge" -> {
+                                if (selectedFiles.isEmpty()) "Choose PDFs to Merge"
+                                else if (selectedFiles.size == 1) "Merge (Select 2+ files)"
+                                else "Merge ${selectedFiles.size} PDFs Now"
+                            }
                             "compress" -> "Compress Now"
                             "image_to_pdf" -> "Convert to PDF"
                             "pdf_to_image" -> "Extract Images"
@@ -1344,6 +1423,36 @@ fun ToolDetailScreen(
                                     )
                                 }
 
+                                if (toolId == "merge" && selectedFiles.size == 1) {
+                                    Surface(
+                                        color = Color(0xFFFFF3E0),
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, Color(0xFFFFB74D)),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 12.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(10.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Info,
+                                                contentDescription = null,
+                                                tint = Color(0xFFE65100),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "At least 2 PDF files are required for merging. Add at least 1 more file.",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = Color(0xFFE65100)
+                                            )
+                                        }
+                                    }
+                                }
+
                                 HorizontalDivider(color = WarmBorderLight, thickness = 1.dp)
 
                                 selectedFiles.forEachIndexed { index, file ->
@@ -1459,38 +1568,46 @@ fun ToolDetailScreen(
                                             .clickable {
                                                 val file = File(pdf.path)
                                                 if (file.exists()) {
-                                                    val pages = pdf.pageCount.takeIf { it > 0 } ?: PdfEngine.getPdfPageCount(file)
-                                                    val sizeFormatted = pdf.sizeFormatted.ifBlank {
-                                                        val sizeKb = (file.length() / 1024).coerceAtLeast(1)
-                                                        if (sizeKb > 1024) "${String.format("%.1f", sizeKb / 1024.0)} MB" else "$sizeKb KB"
-                                                    }
-
-                                                    if (toolId == "merge") {
-                                                        if (isSelected) {
-                                                            selectedFiles.removeAll { it.localPath == pdf.path }
-                                                            Toast.makeText(context, "Removed ${pdf.title}", Toast.LENGTH_SHORT).show()
-                                                        } else {
-                                                            selectedFiles.add(
-                                                                SelectedFileModel(
-                                                                    name = pdf.title,
-                                                                    sizeText = sizeFormatted,
-                                                                    pageCountText = "$pages pages",
-                                                                    localPath = file.absolutePath
-                                                                )
-                                                            )
-                                                            Toast.makeText(context, "Added ${pdf.title}", Toast.LENGTH_SHORT).show()
-                                                        }
+                                                    if (isSelected) {
+                                                        selectedFiles.removeAll { it.localPath == pdf.path }
+                                                        Toast.makeText(context, "Removed ${pdf.title}", Toast.LENGTH_SHORT).show()
                                                     } else {
-                                                        selectedFiles.clear()
-                                                        selectedFiles.add(
-                                                            SelectedFileModel(
-                                                                name = pdf.title,
-                                                                sizeText = sizeFormatted,
-                                                                pageCountText = "$pages pages",
-                                                                localPath = file.absolutePath
-                                                            )
-                                                        )
-                                                        Toast.makeText(context, "Selected ${pdf.title}", Toast.LENGTH_SHORT).show()
+                                                        val checkList = if (toolId == "merge") selectedFiles else emptyList()
+                                                        when (val result = validateFileForTool(file, toolId, checkList)) {
+                                                            is FileValidationResult.Valid -> {
+                                                                val pages = pdf.pageCount.takeIf { it > 0 } ?: PdfEngine.getPdfPageCount(file)
+                                                                val sizeFormatted = pdf.sizeFormatted.ifBlank {
+                                                                    val sizeKb = (file.length() / 1024).coerceAtLeast(1)
+                                                                    if (sizeKb > 1024) "${String.format("%.1f", sizeKb / 1024.0)} MB" else "$sizeKb KB"
+                                                                }
+
+                                                                if (toolId == "merge") {
+                                                                    selectedFiles.add(
+                                                                        SelectedFileModel(
+                                                                            name = pdf.title,
+                                                                            sizeText = sizeFormatted,
+                                                                            pageCountText = "$pages pages",
+                                                                            localPath = file.absolutePath
+                                                                        )
+                                                                    )
+                                                                    Toast.makeText(context, "Added ${pdf.title}", Toast.LENGTH_SHORT).show()
+                                                                } else {
+                                                                    selectedFiles.clear()
+                                                                    selectedFiles.add(
+                                                                        SelectedFileModel(
+                                                                            name = pdf.title,
+                                                                            sizeText = sizeFormatted,
+                                                                            pageCountText = "$pages pages",
+                                                                            localPath = file.absolutePath
+                                                                        )
+                                                                    )
+                                                                    Toast.makeText(context, "Selected ${pdf.title}", Toast.LENGTH_SHORT).show()
+                                                                }
+                                                            }
+                                                            is FileValidationResult.Invalid -> {
+                                                                Toast.makeText(context, result.reason, Toast.LENGTH_LONG).show()
+                                                            }
+                                                        }
                                                     }
                                                 } else {
                                                     Toast.makeText(context, "File not found: ${pdf.title}", Toast.LENGTH_SHORT).show()
@@ -1576,33 +1693,41 @@ fun ToolDetailScreen(
                                                     onClick = {
                                                         val file = File(pdf.path)
                                                         if (file.exists()) {
-                                                            val pages = pdf.pageCount.takeIf { it > 0 } ?: PdfEngine.getPdfPageCount(file)
-                                                            val sizeFormatted = pdf.sizeFormatted.ifBlank {
-                                                                val sizeKb = (file.length() / 1024).coerceAtLeast(1)
-                                                                if (sizeKb > 1024) "${String.format("%.1f", sizeKb / 1024.0)} MB" else "$sizeKb KB"
-                                                            }
+                                                            val checkList = if (toolId == "merge") selectedFiles else emptyList()
+                                                            when (val result = validateFileForTool(file, toolId, checkList)) {
+                                                                is FileValidationResult.Valid -> {
+                                                                    val pages = pdf.pageCount.takeIf { it > 0 } ?: PdfEngine.getPdfPageCount(file)
+                                                                    val sizeFormatted = pdf.sizeFormatted.ifBlank {
+                                                                        val sizeKb = (file.length() / 1024).coerceAtLeast(1)
+                                                                        if (sizeKb > 1024) "${String.format("%.1f", sizeKb / 1024.0)} MB" else "$sizeKb KB"
+                                                                    }
 
-                                                            if (toolId == "merge") {
-                                                                selectedFiles.add(
-                                                                    SelectedFileModel(
-                                                                        name = pdf.title,
-                                                                        sizeText = sizeFormatted,
-                                                                        pageCountText = "$pages pages",
-                                                                        localPath = file.absolutePath
-                                                                    )
-                                                                )
-                                                                Toast.makeText(context, "Added ${pdf.title}", Toast.LENGTH_SHORT).show()
-                                                            } else {
-                                                                selectedFiles.clear()
-                                                                selectedFiles.add(
-                                                                    SelectedFileModel(
-                                                                        name = pdf.title,
-                                                                        sizeText = sizeFormatted,
-                                                                        pageCountText = "$pages pages",
-                                                                        localPath = file.absolutePath
-                                                                    )
-                                                                )
-                                                                Toast.makeText(context, "Selected ${pdf.title}", Toast.LENGTH_SHORT).show()
+                                                                    if (toolId == "merge") {
+                                                                        selectedFiles.add(
+                                                                            SelectedFileModel(
+                                                                                name = pdf.title,
+                                                                                sizeText = sizeFormatted,
+                                                                                pageCountText = "$pages pages",
+                                                                                localPath = file.absolutePath
+                                                                            )
+                                                                        )
+                                                                        Toast.makeText(context, "Added ${pdf.title}", Toast.LENGTH_SHORT).show()
+                                                                    } else {
+                                                                        selectedFiles.clear()
+                                                                        selectedFiles.add(
+                                                                            SelectedFileModel(
+                                                                                name = pdf.title,
+                                                                                sizeText = sizeFormatted,
+                                                                                pageCountText = "$pages pages",
+                                                                                localPath = file.absolutePath
+                                                                            )
+                                                                        )
+                                                                        Toast.makeText(context, "Selected ${pdf.title}", Toast.LENGTH_SHORT).show()
+                                                                    }
+                                                                }
+                                                                is FileValidationResult.Invalid -> {
+                                                                    Toast.makeText(context, result.reason, Toast.LENGTH_LONG).show()
+                                                                }
                                                             }
                                                         } else {
                                                             Toast.makeText(context, "File not found: ${pdf.title}", Toast.LENGTH_SHORT).show()
