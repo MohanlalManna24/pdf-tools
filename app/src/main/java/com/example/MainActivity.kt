@@ -2,6 +2,7 @@ package com.example
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -73,10 +75,42 @@ class MainActivity : ComponentActivity() {
             val sharedPrefs = remember { context.getSharedPreferences("app_settings", MODE_PRIVATE) }
             val isFirstLaunch = remember { sharedPrefs.getBoolean("is_first_launch", true) }
 
-            var currentScreen by remember {
-                mutableStateOf<AppScreen>(if (isFirstLaunch) AppScreen.Onboarding else AppScreen.MainTab(NavTab.HOME))
+            val initialScreen = remember {
+                if (isFirstLaunch) AppScreen.Onboarding else AppScreen.MainTab(NavTab.HOME)
             }
+            val navigationStack = remember { mutableStateListOf<AppScreen>(initialScreen) }
+            val currentScreen = navigationStack.lastOrNull() ?: AppScreen.MainTab(NavTab.HOME)
             var currentTab by remember { mutableStateOf(NavTab.HOME) }
+
+            fun navigateTo(screen: AppScreen) {
+                if (screen is AppScreen.MainTab) {
+                    currentTab = screen.tab
+                    navigationStack.clear()
+                    navigationStack.add(screen)
+                } else {
+                    navigationStack.add(screen)
+                }
+            }
+
+            fun navigateBack() {
+                if (navigationStack.size > 1) {
+                    navigationStack.removeAt(navigationStack.lastIndex)
+                    val top = navigationStack.lastOrNull()
+                    if (top is AppScreen.MainTab) {
+                        currentTab = top.tab
+                    }
+                } else if (currentTab != NavTab.HOME) {
+                    currentTab = NavTab.HOME
+                    navigationStack.clear()
+                    navigationStack.add(AppScreen.MainTab(NavTab.HOME))
+                }
+            }
+
+            BackHandler(
+                enabled = navigationStack.size > 1 || (currentScreen is AppScreen.MainTab && (currentScreen as AppScreen.MainTab).tab != NavTab.HOME)
+            ) {
+                navigateBack()
+            }
 
             MyApplicationTheme(darkTheme = isDarkTheme) {
                 // Global Processing Overlay logic
@@ -95,12 +129,11 @@ class MainActivity : ComponentActivity() {
                             filePath = state.path,
                             onOpenPdf = {
                                 viewModel.resetProcessingState()
-                                currentScreen = AppScreen.PdfReader
+                                navigateTo(AppScreen.PdfReader)
                             },
                             onReturnHome = {
                                 viewModel.resetProcessingState()
-                                currentScreen = AppScreen.MainTab(NavTab.HOME)
-                                currentTab = NavTab.HOME
+                                navigateTo(AppScreen.MainTab(NavTab.HOME))
                             },
                             onRenameFile = { newTitle, newPath ->
                                 viewModel.updateSuccessStateTitle(newTitle, newPath)
@@ -113,7 +146,7 @@ class MainActivity : ComponentActivity() {
                             onRetry = { viewModel.resetProcessingState() },
                             onReturnHome = {
                                 viewModel.resetProcessingState()
-                                currentScreen = AppScreen.MainTab(NavTab.HOME)
+                                navigateTo(AppScreen.MainTab(NavTab.HOME))
                             }
                         )
                     }
@@ -130,8 +163,7 @@ class MainActivity : ComponentActivity() {
                                     PdfBottomNavBar(
                                         selectedTab = currentTab,
                                         onTabSelected = { tab ->
-                                            currentTab = tab
-                                            currentScreen = AppScreen.MainTab(tab)
+                                            navigateTo(AppScreen.MainTab(tab))
                                         }
                                     )
                                 }
@@ -152,8 +184,7 @@ class MainActivity : ComponentActivity() {
                                             OnboardingScreen(
                                                 onFinishOnboarding = {
                                                     sharedPrefs.edit().putBoolean("is_first_launch", false).apply()
-                                                    currentTab = NavTab.HOME
-                                                    currentScreen = AppScreen.MainTab(NavTab.HOME)
+                                                    navigateTo(AppScreen.MainTab(NavTab.HOME))
                                                 }
                                             )
                                         }
@@ -165,23 +196,21 @@ class MainActivity : ComponentActivity() {
                                                         viewModel = viewModel,
                                                         onSelectTool = { toolId ->
                                                             when (toolId) {
-                                                                "scanner" -> currentScreen = AppScreen.Scanner
-                                                                "ocr" -> currentScreen = AppScreen.OcrReview
-                                                                "reader" -> currentScreen = AppScreen.PdfReader
-                                                                else -> currentScreen = AppScreen.ToolDetail(toolId)
+                                                                "scanner" -> navigateTo(AppScreen.Scanner)
+                                                                "ocr" -> navigateTo(AppScreen.OcrReview)
+                                                                "reader" -> navigateTo(AppScreen.PdfReader)
+                                                                else -> navigateTo(AppScreen.ToolDetail(toolId))
                                                             }
                                                         },
                                                         onOpenPdf = { pdf ->
                                                             viewModel.openPdf(pdf)
-                                                            currentScreen = AppScreen.PdfReader
+                                                            navigateTo(AppScreen.PdfReader)
                                                         },
                                                         onViewAllRecent = {
-                                                            currentTab = NavTab.FILES
-                                                            currentScreen = AppScreen.MainTab(NavTab.FILES)
+                                                            navigateTo(AppScreen.MainTab(NavTab.FILES))
                                                         },
                                                         onOpenProfile = {
-                                                            currentTab = NavTab.SETTINGS
-                                                            currentScreen = AppScreen.MainTab(NavTab.SETTINGS)
+                                                            navigateTo(AppScreen.MainTab(NavTab.SETTINGS))
                                                         }
                                                     )
                                                 }
@@ -190,10 +219,10 @@ class MainActivity : ComponentActivity() {
                                                     ToolsListScreen(
                                                         onSelectTool = { toolId ->
                                                             when (toolId) {
-                                                                "scanner" -> currentScreen = AppScreen.Scanner
-                                                                "ocr" -> currentScreen = AppScreen.OcrReview
-                                                                "reader" -> currentScreen = AppScreen.PdfReader
-                                                                else -> currentScreen = AppScreen.ToolDetail(toolId)
+                                                                "scanner" -> navigateTo(AppScreen.Scanner)
+                                                                "ocr" -> navigateTo(AppScreen.OcrReview)
+                                                                "reader" -> navigateTo(AppScreen.PdfReader)
+                                                                else -> navigateTo(AppScreen.ToolDetail(toolId))
                                                             }
                                                         }
                                                     )
@@ -203,11 +232,10 @@ class MainActivity : ComponentActivity() {
                                                     ScannerScreen(
                                                         viewModel = viewModel,
                                                         onClose = {
-                                                            currentTab = NavTab.HOME
-                                                            currentScreen = AppScreen.MainTab(NavTab.HOME)
+                                                            navigateTo(AppScreen.MainTab(NavTab.HOME))
                                                         },
                                                         onCompleteScan = {
-                                                            currentScreen = AppScreen.PdfReader
+                                                            navigateTo(AppScreen.PdfReader)
                                                         }
                                                     )
                                                 }
@@ -217,7 +245,7 @@ class MainActivity : ComponentActivity() {
                                                         viewModel = viewModel,
                                                         onOpenPdf = { pdf ->
                                                             viewModel.openPdf(pdf)
-                                                            currentScreen = AppScreen.PdfReader
+                                                            navigateTo(AppScreen.PdfReader)
                                                         }
                                                     )
                                                 }
@@ -225,11 +253,10 @@ class MainActivity : ComponentActivity() {
                                                 NavTab.SETTINGS -> {
                                                     SettingsScreen(
                                                         viewModel = viewModel,
-                                                        onNavigatePrivacy = { currentScreen = AppScreen.Privacy },
-                                                        onNavigateAbout = { currentScreen = AppScreen.About },
+                                                        onNavigatePrivacy = { navigateTo(AppScreen.Privacy) },
+                                                        onNavigateAbout = { navigateTo(AppScreen.About) },
                                                         onNavigateBack = {
-                                                            currentTab = NavTab.HOME
-                                                            currentScreen = AppScreen.MainTab(NavTab.HOME)
+                                                            navigateTo(AppScreen.MainTab(NavTab.HOME))
                                                         }
                                                     )
                                                 }
@@ -241,7 +268,7 @@ class MainActivity : ComponentActivity() {
                                                 toolId = targetScreen.toolId,
                                                 activePdf = activePdf,
                                                 allPdfs = allPdfs,
-                                                onBack = { currentScreen = AppScreen.MainTab(currentTab) },
+                                                onBack = { navigateBack() },
                                                 onExecuteTool = { titles, param ->
                                                     viewModel.executeTool(targetScreen.toolId, titles, param)
                                                 }
@@ -251,16 +278,16 @@ class MainActivity : ComponentActivity() {
                                         is AppScreen.Scanner -> {
                                             ScannerScreen(
                                                 viewModel = viewModel,
-                                                onClose = { currentScreen = AppScreen.MainTab(currentTab) },
+                                                onClose = { navigateBack() },
                                                 onCompleteScan = {
-                                                    currentScreen = AppScreen.PdfReader
+                                                    navigateTo(AppScreen.PdfReader)
                                                 }
                                             )
                                         }
 
                                         is AppScreen.OcrReview -> {
                                             OcrReviewScreen(
-                                                onBack = { currentScreen = AppScreen.MainTab(currentTab) },
+                                                onBack = { navigateBack() },
                                                 onSaveAsPdf = { extractedText ->
                                                     viewModel.executeTool("ocr", listOf("Scanned_Invoice.pdf"), extractedText)
                                                 }
@@ -275,7 +302,7 @@ class MainActivity : ComponentActivity() {
                                                 onSelectPdf = { selectedPdf ->
                                                     viewModel.openPdf(selectedPdf)
                                                 },
-                                                onBack = { currentScreen = AppScreen.MainTab(currentTab) },
+                                                onBack = { navigateBack() },
                                                 onOpenLocalPdf = { uri ->
                                                     viewModel.importUriToApp(uri) { importedPdf ->
                                                         viewModel.openPdf(importedPdf)
@@ -291,20 +318,20 @@ class MainActivity : ComponentActivity() {
                                                     viewModel.toggleFavorite(targetPdf)
                                                 },
                                                 onOpenTool = { toolId ->
-                                                    currentScreen = AppScreen.ToolDetail(toolId)
+                                                    navigateTo(AppScreen.ToolDetail(toolId))
                                                 }
                                             )
                                         }
 
                                         is AppScreen.Privacy -> {
                                             PrivacyScreen(
-                                                onBack = { currentScreen = AppScreen.MainTab(NavTab.SETTINGS) }
+                                                onBack = { navigateBack() }
                                             )
                                         }
 
                                         is AppScreen.About -> {
                                             AboutScreen(
-                                                onBack = { currentScreen = AppScreen.MainTab(NavTab.SETTINGS) }
+                                                onBack = { navigateBack() }
                                             )
                                         }
                                     }

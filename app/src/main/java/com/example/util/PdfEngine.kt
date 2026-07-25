@@ -20,6 +20,10 @@ import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.itextpdf.text.pdf.PdfReader
+import com.itextpdf.text.pdf.PdfStamper
+import com.itextpdf.text.pdf.PdfWriter
+import com.itextpdf.text.exceptions.BadPasswordException
 
 data class LocalPdfInfo(
     val file: File,
@@ -129,12 +133,24 @@ object PdfEngine {
     fun isPasswordProtected(file: File): Boolean {
         if (!file.exists() || file.length() == 0L) return false
         try {
+            val reader = PdfReader(file.absolutePath)
+            val encrypted = reader.isEncrypted
+            reader.close()
+            if (encrypted) return true
+        } catch (e: BadPasswordException) {
+            return true
+        } catch (e: Exception) {
+            // Check fallback
+        }
+
+        try {
             val bytes = file.readBytes()
             val text = String(bytes, Charsets.ISO_8859_1)
             if (text.contains("/Encrypt") || text.contains("/PasswordHash")) return true
         } catch (e: Exception) {
             e.printStackTrace()
         }
+
         return try {
             ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
                 PdfRenderer(pfd).use {
@@ -150,7 +166,23 @@ object PdfEngine {
 
     fun verifyPassword(file: File, passwordText: String): Boolean {
         if (!file.exists()) return false
-        val passHash = sha256(passwordText.trim())
+        val passTrimmed = passwordText.trim()
+        val passBytes = passTrimmed.toByteArray(Charsets.UTF_8)
+
+        // 1. Try standard PDF encryption validation via iText
+        try {
+            val reader = PdfReader(file.absolutePath, passBytes)
+            val encrypted = reader.isEncrypted
+            reader.close()
+            return true
+        } catch (e: BadPasswordException) {
+            return false
+        } catch (e: Exception) {
+            // Not encrypted or standard check failed
+        }
+
+        // 2. Legacy fallback check for older app-generated files
+        val passHash = sha256(passTrimmed)
         try {
             val bytes = file.readBytes()
             val text = String(bytes, Charsets.ISO_8859_1)
@@ -188,13 +220,20 @@ object PdfEngine {
         var tempUnlockedFile: File? = null
 
         if (isPasswordProtected(file)) {
-            if (passwordText != null && verifyPassword(file, passwordText)) {
-                tempUnlockedFile = createCleanUnlockedTempFile(file)
+            if (!passwordText.isNullOrEmpty() && verifyPassword(file, passwordText)) {
+                tempUnlockedFile = createCleanUnlockedTempFile(file, passwordText)
                 if (tempUnlockedFile != null && tempUnlockedFile.exists()) {
                     targetFile = tempUnlockedFile
                 }
             } else {
-                return parsePageCountFromPdfBytes(file)
+                try {
+                    val reader = PdfReader(file.absolutePath)
+                    val count = reader.numberOfPages
+                    reader.close()
+                    return count
+                } catch (e: Exception) {
+                    return parsePageCountFromPdfBytes(file)
+                }
             }
         }
 
@@ -220,8 +259,8 @@ object PdfEngine {
         var tempUnlockedFile: File? = null
 
         if (isPasswordProtected(file)) {
-            if (passwordText != null && verifyPassword(file, passwordText)) {
-                tempUnlockedFile = createCleanUnlockedTempFile(file)
+            if (!passwordText.isNullOrEmpty() && verifyPassword(file, passwordText)) {
+                tempUnlockedFile = createCleanUnlockedTempFile(file, passwordText)
                 if (tempUnlockedFile != null && tempUnlockedFile.exists()) {
                     targetFile = tempUnlockedFile
                 }
@@ -281,36 +320,73 @@ object PdfEngine {
         val sourceFile = File(inputPath)
         val outputFile = createOutputFile(context, "Protected_Doc")
         val pass = passwordText.ifBlank { "1234" }
-        val passHash = sha256(pass)
 
         var count = 1
-        if (sourceFile.exists() && sourceFile.length() > 0) {
-            count = getPdfPageCount(sourceFile)
+        var encryptionSuccess = false
+
+        try {
+            val passBytes = pass.toByteArray(Charsets.UTF_8)
+            val reader = PdfReader(sourceFile.absolutePath)
+            count = reader.numberOfPages
+
+            val fos = FileOutputStream(outputFile)
+            val stamper = PdfStamper(reader, fos)
+
+            stamper.setEncryption(
+                passBytes, // User Password
+                passBytes, // Owner Password
+                PdfWriter.ALLOW_PRINTING or PdfWriter.ALLOW_COPY, // Permissions
+                PdfWriter.STANDARD_ENCRYPTION_128 // Standard ISO 32000-1 128-bit Encryption
+            )
+
+            stamper.close()
+            reader.close()
+            encryptionSuccess = outputFile.exists() && outputFile.length() > 0
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
 
-        val tempDoc = PdfDocument()
-        for (p in 0 until count) {
-            val bitmap = renderPageToBitmap(sourceFile, p, 1000)
-            if (bitmap != null) {
-                val pageInfo = PdfDocument.PageInfo.Builder(bitmap.width, bitmap.height, p + 1).create()
-                val newPage = tempDoc.startPage(pageInfo)
-                newPage.canvas.drawBitmap(bitmap, 0f, 0f, null)
-                tempDoc.finishPage(newPage)
-                if (!bitmap.isRecycled) {
-                    bitmap.recycle()
+        // Fallback if source file needed page rendering before encryption
+        if (!encryptionSuccess) {
+            try {
+                count = getPdfPageCount(sourceFile)
+                val tempDoc = PdfDocument()
+                for (p in 0 until count) {
+                    val bitmap = renderPageToBitmap(sourceFile, p, 1000)
+                    if (bitmap != null) {
+                        val pageInfo = PdfDocument.PageInfo.Builder(bitmap.width, bitmap.height, p + 1).create()
+                        val newPage = tempDoc.startPage(pageInfo)
+                        newPage.canvas.drawBitmap(bitmap, 0f, 0f, null)
+                        tempDoc.finishPage(newPage)
+                        if (!bitmap.isRecycled) {
+                            bitmap.recycle()
+                        }
+                    }
                 }
+
+                val tempFile = File(context.cacheDir, "temp_render_${System.currentTimeMillis()}.pdf")
+                FileOutputStream(tempFile).use { out -> tempDoc.writeTo(out) }
+                tempDoc.close()
+
+                val passBytes = pass.toByteArray(Charsets.UTF_8)
+                val reader = PdfReader(tempFile.absolutePath)
+                val fos = FileOutputStream(outputFile)
+                val stamper = PdfStamper(reader, fos)
+
+                stamper.setEncryption(
+                    passBytes,
+                    passBytes,
+                    PdfWriter.ALLOW_PRINTING or PdfWriter.ALLOW_COPY,
+                    PdfWriter.STANDARD_ENCRYPTION_128
+                )
+
+                stamper.close()
+                reader.close()
+                tempFile.delete()
+            } catch (ex: Exception) {
+                ex.printStackTrace()
             }
         }
-
-        val tempFile = File(context.cacheDir, "temp_unencrypted_${System.currentTimeMillis()}.pdf")
-        FileOutputStream(tempFile).use { out -> tempDoc.writeTo(out) }
-        tempDoc.close()
-
-        val rawBytes = tempFile.readBytes()
-        tempFile.delete()
-
-        val encryptedBytes = applyPdfEncryption(rawBytes, passHash)
-        FileOutputStream(outputFile).use { out -> out.write(encryptedBytes) }
 
         LocalPdfInfo(
             file = outputFile,
@@ -319,51 +395,40 @@ object PdfEngine {
         )
     }
 
-    private fun applyPdfEncryption(rawBytes: ByteArray, passHash: String): ByteArray {
-        try {
-            val text = String(rawBytes, Charsets.ISO_8859_1)
-            val trailerIndex = text.lastIndexOf("trailer")
-            if (trailerIndex != -1) {
-                val dictStartIndex = text.indexOf("<<", trailerIndex)
-                if (dictStartIndex != -1) {
-                    val insertPos = dictStartIndex + 2
-                    val encryptEntry = "\n/Encrypt << /Filter /Standard /V 2 /R 3 /P -1028 /U (${passHash.take(32)}) /O (${passHash.takeLast(32)}) >>\n/PasswordHash <$passHash>\n"
-
-                    val prefix = rawBytes.copyOfRange(0, insertPos)
-                    val suffix = rawBytes.copyOfRange(insertPos, rawBytes.size)
-                    val encryptBytes = encryptEntry.toByteArray(Charsets.ISO_8859_1)
-
-                    val result = ByteArray(prefix.size + encryptBytes.size + suffix.size)
-                    System.arraycopy(prefix, 0, result, 0, prefix.size)
-                    System.arraycopy(encryptBytes, 0, result, prefix.size, encryptBytes.size)
-                    System.arraycopy(suffix, 0, result, prefix.size + encryptBytes.size, suffix.size)
-                    return result
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        val ext = "\n/PasswordHash <$passHash>\n/Encrypt << /Filter /Standard /V 2 /R 3 /P -1028 >>\n".toByteArray(Charsets.ISO_8859_1)
-        return rawBytes + ext
-    }
-
-    fun createCleanUnlockedTempFile(file: File): File? {
+    fun createCleanUnlockedTempFile(file: File, passwordText: String? = null): File? {
+        if (!file.exists()) return null
         return try {
-            val rawBytes = file.readBytes()
-            val text = String(rawBytes, Charsets.ISO_8859_1)
-            val cleanText = text
-                .replace(Regex("""/Encrypt\s*<<[^>]*>>"""), "")
-                .replace(Regex("""/PasswordHash\s*<[0-9a-fA-F]+>"""), "")
-
-            val cleanBytes = cleanText.toByteArray(Charsets.ISO_8859_1)
-            val temp = File.createTempFile("unlocked_", ".pdf")
-            temp.writeBytes(cleanBytes)
+            val passBytes = passwordText?.trim()?.takeIf { it.isNotEmpty() }?.toByteArray(Charsets.UTF_8)
+            val reader = if (passBytes != null) {
+                PdfReader(file.absolutePath, passBytes)
+            } else {
+                PdfReader(file.absolutePath)
+            }
+            val temp = File.createTempFile("unlocked_", ".pdf", file.parentFile)
+            val fos = FileOutputStream(temp)
+            val stamper = PdfStamper(reader, fos)
+            stamper.close()
+            reader.close()
             temp
         } catch (e: Exception) {
-            e.printStackTrace()
-            null
+            // Legacy fallback for old custom injected files
+            try {
+                val rawBytes = file.readBytes()
+                val text = String(rawBytes, Charsets.ISO_8859_1)
+                val cleanText = text
+                    .replace(Regex("""/Encrypt\s*<<[^>]*>>"""), "")
+                    .replace(Regex("""/PasswordHash\s*<[0-9a-fA-F]+>"""), "")
+
+                val cleanBytes = cleanText.toByteArray(Charsets.ISO_8859_1)
+                val temp = File.createTempFile("unlocked_legacy_", ".pdf")
+                temp.writeBytes(cleanBytes)
+                temp
+            } catch (ex: Exception) {
+                null
+            }
         }
     }
+
 
     private fun serveSampleDocumentBitmap(pageIndex: Int): Bitmap {
         val bitmap = Bitmap.createBitmap(600, 800, Bitmap.Config.ARGB_8888)

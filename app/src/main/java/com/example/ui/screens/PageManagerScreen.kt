@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.graphics.Bitmap
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -87,6 +88,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.db.PdfEntity
+import com.example.ui.components.PdfThumbnailView
 import com.example.ui.theme.RedPrimary
 import com.example.ui.theme.WarmBorderLight
 import com.example.ui.theme.WarmCardBgLight
@@ -117,6 +119,14 @@ fun PageManagerScreen(
     var currentPath by remember { mutableStateOf(initialFilePath) }
     var currentTitle by remember { mutableStateOf(documentTitle ?: "Document.pdf") }
     var searchQuery by remember { mutableStateOf("") }
+
+    BackHandler(enabled = !currentPath.isNullOrEmpty()) {
+        if (initialFilePath.isNullOrEmpty()) {
+            currentPath = null
+        } else {
+            onBack()
+        }
+    }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -336,20 +346,14 @@ fun PageManagerScreen(
                                         .padding(12.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Box(
+                                    PdfThumbnailView(
+                                        pdfPath = pdf.path,
+                                        pdfTitle = pdf.title,
                                         modifier = Modifier
-                                            .size(44.dp)
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .background(RedPrimary.copy(alpha = 0.1f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Description,
-                                            contentDescription = null,
-                                            tint = RedPrimary,
-                                            modifier = Modifier.size(24.dp)
-                                        )
-                                    }
+                                            .size(38.dp, 48.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .border(0.5.dp, WarmBorderLight, RoundedCornerShape(8.dp))
+                                    )
 
                                     Spacer(modifier = Modifier.width(12.dp))
 
