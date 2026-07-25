@@ -35,6 +35,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Lock
@@ -90,6 +91,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.db.PdfEntity
@@ -171,6 +173,28 @@ fun ToolDetailScreen(
 
     // Interactive files list
     val selectedFiles = remember { mutableStateListOf<SelectedFileModel>() }
+
+    // Auto-populate activePdf if provided and selectedFiles is empty
+    LaunchedEffect(activePdf) {
+        if (activePdf != null && selectedFiles.isEmpty()) {
+            val file = File(activePdf.path)
+            if (file.exists()) {
+                val pages = activePdf.pageCount.takeIf { it > 0 } ?: PdfEngine.getPdfPageCount(file)
+                val sizeFormatted = activePdf.sizeFormatted.ifBlank {
+                    val sizeKb = (file.length() / 1024).coerceAtLeast(1)
+                    if (sizeKb > 1024) "${String.format("%.1f", sizeKb / 1024.0)} MB" else "$sizeKb KB"
+                }
+                selectedFiles.add(
+                    SelectedFileModel(
+                        name = activePdf.title,
+                        sizeText = sizeFormatted,
+                        pageCountText = "$pages pages",
+                        localPath = file.absolutePath
+                    )
+                )
+            }
+        }
+    }
 
     // Document Picker Launcher
     val documentPicker = rememberLauncherForActivityResult(
@@ -1284,6 +1308,297 @@ fun ToolDetailScreen(
                                     documentPicker.launch(targetMime)
                                 }
                             )
+                        }
+                    }
+                }
+            }
+
+            // Suggested App PDFs Container Card (Suggests existing app documents for fast selection)
+            if (allPdfs.isNotEmpty()) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.cardColors(containerColor = WarmCardBgLight),
+                        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(WarmBorderLight))
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(RedPrimary.copy(alpha = 0.12f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.FolderOpen,
+                                            contentDescription = null,
+                                            tint = RedPrimary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = "App Documents Library",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            color = Color(0xFF1C1B1F)
+                                        )
+                                        Text(
+                                            text = "Quickly pick PDFs saved in this app",
+                                            fontSize = 11.sp,
+                                            color = Color.Gray
+                                        )
+                                    }
+                                }
+
+                                Surface(
+                                    color = RedPrimary.copy(alpha = 0.1f),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Text(
+                                        text = "${allPdfs.size} PDFs",
+                                        color = RedPrimary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            var appPdfQuery by remember { mutableStateOf("") }
+                            if (allPdfs.size > 3) {
+                                OutlinedTextField(
+                                    value = appPdfQuery,
+                                    onValueChange = { appPdfQuery = it },
+                                    placeholder = { Text("Search app documents...", fontSize = 12.sp) },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color.Gray)
+                                    },
+                                    trailingIcon = {
+                                        if (appPdfQuery.isNotEmpty()) {
+                                            IconButton(onClick = { appPdfQuery = "" }, modifier = Modifier.size(18.dp)) {
+                                                Icon(Icons.Filled.Close, contentDescription = "Clear search", tint = Color.Gray)
+                                            }
+                                        }
+                                    },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = RedPrimary,
+                                        unfocusedBorderColor = WarmBorderLight
+                                    )
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                            }
+
+                            val filteredAppPdfs = remember(allPdfs, appPdfQuery) {
+                                if (appPdfQuery.isBlank()) allPdfs
+                                else allPdfs.filter { it.title.contains(appPdfQuery, ignoreCase = true) }
+                            }
+
+                            if (filteredAppPdfs.isEmpty()) {
+                                Text(
+                                    text = "No matching documents found",
+                                    fontSize = 12.sp,
+                                    color = Color.Gray,
+                                    modifier = Modifier.padding(vertical = 12.dp)
+                                )
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    filteredAppPdfs.forEach { pdf ->
+                                        val isSelected = selectedFiles.any { it.localPath == pdf.path }
+
+                                        Surface(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .clickable {
+                                                    val file = File(pdf.path)
+                                                    if (file.exists()) {
+                                                        val pages = pdf.pageCount.takeIf { it > 0 } ?: PdfEngine.getPdfPageCount(file)
+                                                        val sizeFormatted = pdf.sizeFormatted.ifBlank {
+                                                            val sizeKb = (file.length() / 1024).coerceAtLeast(1)
+                                                            if (sizeKb > 1024) "${String.format("%.1f", sizeKb / 1024.0)} MB" else "$sizeKb KB"
+                                                        }
+
+                                                        if (toolId == "merge") {
+                                                            if (isSelected) {
+                                                                selectedFiles.removeAll { it.localPath == pdf.path }
+                                                                Toast.makeText(context, "Removed ${pdf.title}", Toast.LENGTH_SHORT).show()
+                                                            } else {
+                                                                selectedFiles.add(
+                                                                    SelectedFileModel(
+                                                                        name = pdf.title,
+                                                                        sizeText = sizeFormatted,
+                                                                        pageCountText = "$pages pages",
+                                                                        localPath = file.absolutePath
+                                                                    )
+                                                                )
+                                                                Toast.makeText(context, "Added ${pdf.title}", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        } else {
+                                                            selectedFiles.clear()
+                                                            selectedFiles.add(
+                                                                SelectedFileModel(
+                                                                    name = pdf.title,
+                                                                    sizeText = sizeFormatted,
+                                                                    pageCountText = "$pages pages",
+                                                                    localPath = file.absolutePath
+                                                                )
+                                                            )
+                                                            Toast.makeText(context, "Selected ${pdf.title}", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    } else {
+                                                        Toast.makeText(context, "File not found: ${pdf.title}", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                },
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = if (isSelected) RedPrimary.copy(alpha = 0.08f) else Color.White,
+                                            border = BorderStroke(
+                                                width = if (isSelected) 1.5.dp else 1.dp,
+                                                color = if (isSelected) RedPrimary else WarmBorderLight
+                                            )
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(12.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.weight(1f)
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(36.dp)
+                                                            .clip(RoundedCornerShape(8.dp))
+                                                            .background(if (isSelected) RedPrimary else RedPrimary.copy(alpha = 0.12f)),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Filled.PictureAsPdf,
+                                                            contentDescription = null,
+                                                            tint = if (isSelected) Color.White else RedPrimary,
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.width(12.dp))
+                                                    Column {
+                                                        Text(
+                                                            text = pdf.title,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            fontSize = 13.sp,
+                                                            color = Color(0xFF1C1B1F),
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                        Spacer(modifier = Modifier.height(2.dp))
+                                                        Text(
+                                                            text = "${pdf.pageCount} pages • ${pdf.sizeFormatted}",
+                                                            fontSize = 11.sp,
+                                                            color = Color.Gray
+                                                        )
+                                                    }
+                                                }
+
+                                                Spacer(modifier = Modifier.width(8.dp))
+
+                                                if (isSelected) {
+                                                    Surface(
+                                                        color = RedPrimary,
+                                                        shape = RoundedCornerShape(16.dp)
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Filled.Check,
+                                                                contentDescription = "Selected",
+                                                                tint = Color.White,
+                                                                modifier = Modifier.size(12.dp)
+                                                            )
+                                                            Spacer(modifier = Modifier.width(4.dp))
+                                                            Text(
+                                                                text = "Selected",
+                                                                fontSize = 11.sp,
+                                                                color = Color.White,
+                                                                fontWeight = FontWeight.Bold
+                                                            )
+                                                        }
+                                                    }
+                                                } else {
+                                                    OutlinedButton(
+                                                        onClick = {
+                                                            val file = File(pdf.path)
+                                                            if (file.exists()) {
+                                                                val pages = pdf.pageCount.takeIf { it > 0 } ?: PdfEngine.getPdfPageCount(file)
+                                                                val sizeFormatted = pdf.sizeFormatted.ifBlank {
+                                                                    val sizeKb = (file.length() / 1024).coerceAtLeast(1)
+                                                                    if (sizeKb > 1024) "${String.format("%.1f", sizeKb / 1024.0)} MB" else "$sizeKb KB"
+                                                                }
+
+                                                                if (toolId == "merge") {
+                                                                    selectedFiles.add(
+                                                                        SelectedFileModel(
+                                                                            name = pdf.title,
+                                                                            sizeText = sizeFormatted,
+                                                                            pageCountText = "$pages pages",
+                                                                            localPath = file.absolutePath
+                                                                        )
+                                                                    )
+                                                                    Toast.makeText(context, "Added ${pdf.title}", Toast.LENGTH_SHORT).show()
+                                                                } else {
+                                                                    selectedFiles.clear()
+                                                                    selectedFiles.add(
+                                                                        SelectedFileModel(
+                                                                            name = pdf.title,
+                                                                            sizeText = sizeFormatted,
+                                                                            pageCountText = "$pages pages",
+                                                                            localPath = file.absolutePath
+                                                                        )
+                                                                    )
+                                                                    Toast.makeText(context, "Selected ${pdf.title}", Toast.LENGTH_SHORT).show()
+                                                                }
+                                                            } else {
+                                                                Toast.makeText(context, "File not found: ${pdf.title}", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        },
+                                                        shape = RoundedCornerShape(16.dp),
+                                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                                        border = BorderStroke(1.dp, RedPrimary),
+                                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = RedPrimary),
+                                                        modifier = Modifier.height(30.dp)
+                                                    ) {
+                                                        Icon(imageVector = Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(12.dp))
+                                                        Spacer(modifier = Modifier.width(2.dp))
+                                                        Text(text = "Select", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
