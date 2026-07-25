@@ -175,6 +175,30 @@ fun ToolDetailScreen(
     // Interactive files list
     val selectedFiles = remember { mutableStateListOf<SelectedFileModel>() }
 
+    val targetMime = when (toolId) {
+        "image_to_pdf" -> "image/*"
+        "merge" -> "*/*"
+        else -> "application/pdf"
+    }
+
+    LaunchedEffect(activePdf) {
+        if (activePdf != null && selectedFiles.isEmpty()) {
+            val file = File(activePdf.path)
+            if (file.exists() && isFileSupportedForTool(toolId, file)) {
+                val isImage = PdfEngine.isValidImageFile(file) && !PdfEngine.isValidPdfFile(file)
+                selectedFiles.add(
+                    SelectedFileModel(
+                        name = activePdf.title,
+                        sizeText = activePdf.sizeFormatted,
+                        pageCountText = if (isImage) "Image file" else "${activePdf.pageCount} pages",
+                        localPath = activePdf.path,
+                        uri = null
+                    )
+                )
+            }
+        }
+    }
+
     BackHandler(enabled = selectedFiles.isNotEmpty()) {
         selectedFiles.clear()
     }
@@ -183,23 +207,36 @@ fun ToolDetailScreen(
     val documentPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
     ) { uris ->
+        var rejectedCount = 0
         uris.forEach { uri ->
             val tempFile = PdfEngine.getFileFromUri(context, uri)
             if (tempFile != null) {
-                val isImageTool = toolId == "image_to_pdf"
-                val pages = if (isImageTool) 1 else PdfEngine.getPdfPageCount(tempFile)
-                val sizeKb = (tempFile.length() / 1024).coerceAtLeast(1)
-                val sizeFormatted = if (sizeKb > 1024) "${String.format("%.1f", sizeKb / 1024.0)} MB" else "$sizeKb KB"
-                selectedFiles.add(
-                    SelectedFileModel(
-                        name = tempFile.name,
-                        sizeText = sizeFormatted,
-                        pageCountText = if (isImageTool) "Image file" else "$pages pages",
-                        localPath = tempFile.absolutePath,
-                        uri = uri
+                if (isFileSupportedForTool(toolId, tempFile)) {
+                    val isImage = toolId == "image_to_pdf" || (PdfEngine.isValidImageFile(tempFile) && !PdfEngine.isValidPdfFile(tempFile))
+                    val pages = if (isImage) 1 else PdfEngine.getPdfPageCount(tempFile)
+                    val sizeKb = (tempFile.length() / 1024).coerceAtLeast(1)
+                    val sizeFormatted = if (sizeKb > 1024) "${String.format("%.1f", sizeKb / 1024.0)} MB" else "$sizeKb KB"
+                    selectedFiles.add(
+                        SelectedFileModel(
+                            name = tempFile.name,
+                            sizeText = sizeFormatted,
+                            pageCountText = if (isImage) "Image file" else "$pages pages",
+                            localPath = tempFile.absolutePath,
+                            uri = uri
+                        )
                     )
-                )
+                } else {
+                    rejectedCount++
+                }
             }
+        }
+        if (rejectedCount > 0) {
+            val expectedDesc = getToolExpectedFormatDescription(toolId)
+            Toast.makeText(
+                context,
+                "$rejectedCount unsupported file(s) skipped. Please select $expectedDesc.",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
@@ -436,7 +473,7 @@ fun ToolDetailScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(20.dp))
-                                .clickable { documentPicker.launch("application/pdf") },
+                                .clickable { documentPicker.launch(targetMime) },
                             colors = CardDefaults.cardColors(containerColor = WarmCardBgLight),
                             border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(WarmBorderLight))
                         ) {
@@ -475,7 +512,7 @@ fun ToolDetailScreen(
                                 )
                                 Spacer(modifier = Modifier.height(18.dp))
                                 Button(
-                                    onClick = { documentPicker.launch("application/pdf") },
+                                    onClick = { documentPicker.launch(targetMime) },
                                     colors = ButtonDefaults.buttonColors(containerColor = RedPrimary),
                                     shape = RoundedCornerShape(20.dp)
                                 ) {
@@ -533,7 +570,7 @@ fun ToolDetailScreen(
 
                                     TextButton(onClick = {
                                         selectedFiles.clear()
-                                        documentPicker.launch("application/pdf")
+                                        documentPicker.launch(targetMime)
                                     }) {
                                         Text("Change", color = RedPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                     }
@@ -1613,5 +1650,21 @@ fun ToolDetailScreen(
                 Spacer(modifier = Modifier.height(80.dp))
             }
         }
+    }
+}
+
+private fun isFileSupportedForTool(toolId: String, file: File): Boolean {
+    return when (toolId) {
+        "image_to_pdf" -> PdfEngine.isValidImageFile(file)
+        "merge" -> PdfEngine.isValidPdfFile(file) || PdfEngine.isValidImageFile(file)
+        else -> PdfEngine.isValidPdfFile(file)
+    }
+}
+
+private fun getToolExpectedFormatDescription(toolId: String): String {
+    return when (toolId) {
+        "image_to_pdf" -> "Image files (JPG, PNG, WEBP)"
+        "merge" -> "PDF documents or Image files"
+        else -> "PDF documents (.pdf)"
     }
 }
