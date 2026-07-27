@@ -465,19 +465,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         displayTitle = "Watermarked_${System.currentTimeMillis().toString().takeLast(4)}.pdf"
                     }
                     "image_to_pdf" -> {
-                        val imageBitmaps = mutableListOf<Bitmap>()
-                        titlesOrPaths.forEach { path ->
-                            try {
-                                val file = File(path)
-                                if (file.exists()) {
-                                    val bmp = BitmapFactory.decodeFile(file.absolutePath)
-                                    if (bmp != null) imageBitmaps.add(bmp)
-                                }
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                            }
-                        }
-                        resultInfo = PdfEngine.convertImagesToPdf(context, imageBitmaps)
+                        resultInfo = PdfEngine.convertImageFilesToPdf(context, titlesOrPaths)
                         displayTitle = "ImageScan_${System.currentTimeMillis().toString().takeLast(4)}.pdf"
                     }
                     else -> {

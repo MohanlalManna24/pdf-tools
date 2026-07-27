@@ -7,6 +7,8 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Rect
+import android.graphics.RectF
 import android.graphics.pdf.PdfDocument
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
@@ -66,7 +68,7 @@ object PdfEngine {
         // 4. Format & extension check: Only .pdf files allowed (except image_to_pdf)
         if (toolId == "image_to_pdf") {
             if (!isValidImageFile(file)) {
-                return FileValidationResult.Invalid("File '${file.name}' is not a supported image file.")
+                return FileValidationResult.Invalid("File '${file.name}' is not a supported image file (JPG, PNG, WEBP, BMP).")
             }
         } else {
             if (!isValidPdfFile(file)) {
@@ -74,13 +76,13 @@ object PdfEngine {
             }
         }
 
-        // 5. Password protection check
-        if (toolId != "password" && isValidPdfFile(file) && isPasswordProtected(file)) {
+        // 5. Password protection check (only for PDFs)
+        if (toolId != "password" && toolId != "image_to_pdf" && isValidPdfFile(file) && isPasswordProtected(file)) {
             return FileValidationResult.Invalid("File '${file.name}' is password protected. Please remove password protection first.")
         }
 
-        // 6. Corrupted PDF & Readability check
-        if (isValidPdfFile(file)) {
+        // 6. Corrupted PDF & Readability check (only for PDFs)
+        if (toolId != "image_to_pdf" && isValidPdfFile(file)) {
             try {
                 if (!isPasswordProtected(file)) {
                     var pageCount = 0
@@ -155,12 +157,14 @@ object PdfEngine {
     }
 
     /**
-     * Copy URI content to app directory preserving original document name
+     * Copy URI content to app directory preserving original document name & extension
      */
     fun getFileFromUri(context: Context, uri: Uri): File? {
         return try {
             var fileName: String? = null
+            var mimeType: String? = null
             if (uri.scheme == "content") {
+                mimeType = context.contentResolver.getType(uri)
                 val cursor = context.contentResolver.query(uri, null, null, null, null)
                 cursor?.use {
                     if (it.moveToFirst()) {
@@ -176,11 +180,24 @@ object PdfEngine {
                 fileName = if (!lastSegment.isNullOrBlank()) {
                     if (lastSegment.contains("/")) lastSegment.substringAfterLast('/') else lastSegment
                 } else {
-                    "Imported_Doc_${System.currentTimeMillis().toString().takeLast(4)}.pdf"
+                    val defaultExt = if (mimeType?.startsWith("image/") == true) "jpg" else "pdf"
+                    "Imported_File_${System.currentTimeMillis().toString().takeLast(4)}.$defaultExt"
                 }
             }
-            if (!fileName!!.endsWith(".pdf", ignoreCase = true)) {
-                fileName = "$fileName.pdf"
+
+            // If file name does not contain any dot extension, append extension based on mime type
+            if (!fileName!!.contains(".")) {
+                val ext = if (mimeType?.startsWith("image/") == true) {
+                    when (mimeType) {
+                        "image/png" -> "png"
+                        "image/webp" -> "webp"
+                        "image/bmp" -> "bmp"
+                        else -> "jpg"
+                    }
+                } else {
+                    "pdf"
+                }
+                fileName = "$fileName.$ext"
             }
 
             val dir = getOutputDirectory(context)
@@ -206,7 +223,12 @@ object PdfEngine {
     fun isValidPdfFile(file: File?): Boolean {
         if (file == null || !file.exists() || file.length() < 10) return false
         val lowerName = file.name.lowercase()
-        if (lowerName.endsWith(".pdf")) return true
+        if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg") ||
+            lowerName.endsWith(".png") || lowerName.endsWith(".webp") ||
+            lowerName.endsWith(".bmp")
+        ) {
+            return false
+        }
         return try {
             file.inputStream().use { input ->
                 val header = ByteArray(4)
@@ -218,7 +240,7 @@ object PdfEngine {
                     header[3] == 0x46.toByte()    // F
             }
         } catch (e: Exception) {
-            false
+            lowerName.endsWith(".pdf")
         }
     }
 
@@ -1165,6 +1187,71 @@ object PdfEngine {
     }
 
     /**
+     * Decode image file with proper EXIF rotation and downsampling if needed
+     */
+    fun decodeOrientedBitmap(file: File): Bitmap? {
+        if (!file.exists()) return null
+        return try {
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.absolutePath, options)
+            if (options.outWidth <= 0 || options.outHeight <= 0) return null
+
+            var sampleSize = 1
+            val maxDimension = 2048
+            while (options.outWidth / sampleSize > maxDimension || options.outHeight / sampleSize > maxDimension) {
+                sampleSize *= 2
+            }
+            val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+            val bitmap = BitmapFactory.decodeFile(file.absolutePath, decodeOptions) ?: return null
+
+            val exif = android.media.ExifInterface(file.absolutePath)
+            val orientation = exif.getAttributeInt(
+                android.media.ExifInterface.TAG_ORIENTATION,
+                android.media.ExifInterface.ORIENTATION_NORMAL
+            )
+            val rotationDegrees = when (orientation) {
+                android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90
+                android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180
+                android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270
+                else -> 0
+            }
+
+            if (rotationDegrees != 0) {
+                val matrix = Matrix()
+                matrix.postRotate(rotationDegrees.toFloat())
+                Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+            } else {
+                bitmap
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    /**
+     * IMAGE TO PDF: Convert image files directly to PDF
+     */
+    suspend fun convertImageFilesToPdf(context: Context, imagePaths: List<String>): LocalPdfInfo = withContext(Dispatchers.IO) {
+        val bitmaps = mutableListOf<Bitmap>()
+        imagePaths.forEach { path ->
+            val file = File(path)
+            if (file.exists()) {
+                val bmp = decodeOrientedBitmap(file)
+                if (bmp != null) {
+                    bitmaps.add(bmp)
+                }
+            }
+        }
+        if (bitmaps.isEmpty()) {
+            throw IllegalArgumentException("Could not decode any selected image files (JPG, PNG, WEBP, BMP).")
+        }
+        val pdfInfo = convertImagesToPdf(context, bitmaps)
+        bitmaps.forEach { if (!it.isRecycled) it.recycle() }
+        pdfInfo
+    }
+
+    /**
      * IMAGE TO PDF: Convert image Bitmaps to PDF
      */
     suspend fun convertImagesToPdf(context: Context, images: List<Bitmap>): LocalPdfInfo = withContext(Dispatchers.IO) {
@@ -1173,13 +1260,27 @@ object PdfEngine {
         val activeImages = if (images.isNotEmpty()) images else listOf(createSampleImageBitmap())
 
         activeImages.forEachIndexed { index, bitmap ->
-            val w = bitmap.width.coerceAtLeast(300)
-            val h = bitmap.height.coerceAtLeast(400)
-            val pageInfo = PdfDocument.PageInfo.Builder(w, h, index + 1).create()
+            val pageWidth = 595
+            val pageHeight = 842
+            val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, index + 1).create()
             val page = document.startPage(pageInfo)
             val canvas = page.canvas
+
             canvas.drawColor(Color.WHITE)
-            canvas.drawBitmap(bitmap, 0f, 0f, null)
+
+            val scale = minOf(
+                (pageWidth - 40f) / bitmap.width.toFloat(),
+                (pageHeight - 40f) / bitmap.height.toFloat()
+            )
+            val scaledWidth = bitmap.width * scale
+            val scaledHeight = bitmap.height * scale
+            val left = (pageWidth - scaledWidth) / 2f
+            val top = (pageHeight - scaledHeight) / 2f
+
+            val srcRect = Rect(0, 0, bitmap.width, bitmap.height)
+            val destRect = RectF(left, top, left + scaledWidth, top + scaledHeight)
+            canvas.drawBitmap(bitmap, srcRect, destRect, Paint(Paint.FILTER_BITMAP_FLAG))
+
             document.finishPage(page)
         }
 
