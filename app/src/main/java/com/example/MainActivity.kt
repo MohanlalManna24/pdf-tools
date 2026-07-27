@@ -32,7 +32,7 @@ import com.example.ui.screens.OnboardingScreen
 import com.example.ui.screens.PdfReaderScreen
 import com.example.ui.screens.PrivacyScreen
 import com.example.ui.screens.ProcessingScreen
-import com.example.ui.screens.ScannerScreen
+import com.example.ui.screens.ScannerWorkflowHost
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.SuccessScreen
 import com.example.ui.screens.ToolDetailScreen
@@ -40,7 +40,6 @@ import com.example.ui.screens.ToolsListScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.viewmodel.MainViewModel
 import com.example.ui.viewmodel.ProcessingUiState
-import com.example.cv.OpenCVManager
 
 sealed class AppScreen {
     object Onboarding : AppScreen()
@@ -58,10 +57,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Enable edge to edge
         enableEdgeToEdge()
-
-        // Initialize OpenCV SDK safely on app startup
-        OpenCVManager.init(this)
 
         setContent {
             val isDarkTheme by viewModel.isDarkTheme.collectAsState()
@@ -225,14 +222,10 @@ class MainActivity : ComponentActivity() {
                                                 }
 
                                                 NavTab.SCANNER -> {
-                                                    ScannerScreen(
+                                                    ScannerWorkflowHost(
                                                         viewModel = viewModel,
-                                                        onClose = {
-                                                            navigateTo(AppScreen.MainTab(NavTab.HOME))
-                                                        },
-                                                        onCompleteScan = {
-                                                            navigateTo(AppScreen.PdfReader)
-                                                        }
+                                                        onClose = { navigateTo(AppScreen.MainTab(NavTab.HOME)) },
+                                                        onComplete = { navigateTo(AppScreen.PdfReader) }
                                                     )
                                                 }
 
@@ -272,12 +265,10 @@ class MainActivity : ComponentActivity() {
                                         }
 
                                         is AppScreen.Scanner -> {
-                                            ScannerScreen(
+                                            ScannerWorkflowHost(
                                                 viewModel = viewModel,
                                                 onClose = { navigateBack() },
-                                                onCompleteScan = {
-                                                    navigateTo(AppScreen.PdfReader)
-                                                }
+                                                onComplete = { navigateTo(AppScreen.PdfReader) }
                                             )
                                         }
 

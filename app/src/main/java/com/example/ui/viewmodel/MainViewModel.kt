@@ -29,8 +29,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-import com.example.cv.FilterType
-import com.example.cv.ImageEnhancer
 import com.example.util.BatteryOptimizationManager
 import com.example.util.BatteryInfo
 import com.example.worker.PdfWorker

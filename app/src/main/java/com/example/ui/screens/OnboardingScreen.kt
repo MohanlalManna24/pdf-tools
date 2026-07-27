@@ -15,9 +15,13 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
+import com.example.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -189,138 +193,17 @@ private fun WelcomeStepPage(
                 .border(1.dp, Color.White.copy(alpha = 0.8f), RoundedCornerShape(32.dp)),
             contentAlignment = Alignment.Center
         ) {
-            // Animated Floating Stack Graphic
-            Box(
+            // Animated Floating 3D Image Logo
+            Image(
+                painter = painterResource(id = R.drawable.img_doc_stack),
+                contentDescription = "PDF Tools 3D Logo",
                 modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
                     .graphicsLayer { translationY = floatAnim }
-                    .size(200.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                // Background Layer 3
-                Box(
-                    modifier = Modifier
-                        .offset(y = 20.dp, x = (-10).dp)
-                        .size(150.dp, 120.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(Color(0xFFB71C1C), Color(0xFFD32F2F))
-                            )
-                        )
-                )
-
-                // Layer 2
-                Box(
-                    modifier = Modifier
-                        .offset(y = 10.dp, x = 6.dp)
-                        .size(150.dp, 120.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(Color(0xFFE53935), Color(0xFFEF5350))
-                            )
-                        )
-                )
-
-                // Top Main Hero Card
-                Card(
-                    modifier = Modifier
-                        .size(150.dp, 125.dp)
-                        .shadow(16.dp, RoundedCornerShape(22.dp)),
-                    shape = RoundedCornerShape(22.dp),
-                    colors = CardDefaults.cardColors(containerColor = RedPrimary)
-                ) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.PictureAsPdf,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(48.dp)
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Box(
-                                modifier = Modifier
-                                    .width(60.dp)
-                                    .height(4.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.8f))
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Box(
-                                modifier = Modifier
-                                    .width(40.dp)
-                                    .height(4.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.5f))
-                            )
-                        }
-                    }
-                }
-
-                // Floating Gear Icon Badge (Top Left)
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .offset(x = 10.dp, y = 10.dp)
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(Color.White)
-                        .shadow(6.dp, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.AutoAwesome,
-                        contentDescription = null,
-                        tint = RedPrimary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                // Floating Lock Badge (Top Right)
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = (-10).dp, y = 20.dp)
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(Color.White)
-                        .shadow(6.dp, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Lock,
-                        contentDescription = null,
-                        tint = Color(0xFF2E7D32),
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-
-                // Floating Security Badge (Bottom Right)
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .offset(x = (-12).dp, y = (-12).dp)
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(Color.White)
-                        .shadow(6.dp, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Security,
-                        contentDescription = null,
-                        tint = Color(0xFF1976D2),
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
+                    .clip(RoundedCornerShape(24.dp)),
+                contentScale = ContentScale.Fit
+            )
         }
 
         Spacer(modifier = Modifier.height(16.dp))

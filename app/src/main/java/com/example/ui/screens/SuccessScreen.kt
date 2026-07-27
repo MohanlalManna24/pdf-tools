@@ -48,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ui.components.sharePdfFile
 import com.example.ui.theme.RedPrimary
 import com.example.ui.theme.WarmBorderLight
 import com.example.ui.theme.WarmCardBgLight
@@ -331,7 +332,7 @@ fun SuccessScreen(
 
                 OutlinedButton(
                     onClick = {
-                        Toast.makeText(context, "Sharing file...", Toast.LENGTH_SHORT).show()
+                        sharePdfFile(context, currentFilePath, currentTitle)
                     },
                     modifier = Modifier
                         .weight(1f)

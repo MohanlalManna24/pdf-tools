@@ -105,7 +105,7 @@ dependencies {
   // implementation(libs.firebase.appcheck.recaptcha)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
-  implementation(libs.opencv)
+  // implementation(libs.opencv)
   implementation(libs.pdfbox.android)
   // implementation(libs.logging.interceptor)
   // implementation(libs.moshi.kotlin)

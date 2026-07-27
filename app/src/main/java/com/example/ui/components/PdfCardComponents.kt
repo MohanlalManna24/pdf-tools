@@ -494,22 +494,35 @@ private fun DetailRow(
 }
 
 fun sharePdfFile(context: Context, pdf: PdfEntity?) {
-    val file = pdf?.path?.let { File(it) }
-    if (file != null && file.exists()) {
-        try {
-            val uri = FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.provider",
-                file
-            )
-            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "application/pdf"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    if (pdf != null) {
+        sharePdfFile(context, pdf.path, pdf.title)
+    } else {
+        Toast.makeText(context, "File path unavailable for sharing", Toast.LENGTH_SHORT).show()
+    }
+}
+
+fun sharePdfFile(context: Context, filePath: String, title: String = "Document") {
+    if (filePath.isNotEmpty()) {
+        val file = File(filePath)
+        if (file.exists()) {
+            try {
+                val uri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.provider",
+                    file
+                )
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/pdf"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_SUBJECT, title)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(Intent.createChooser(shareIntent, "Share PDF Document"))
+            } catch (e: Exception) {
+                Toast.makeText(context, "Could not share file: ${e.message}", Toast.LENGTH_SHORT).show()
             }
-            context.startActivity(Intent.createChooser(shareIntent, "Share PDF Document"))
-        } catch (e: Exception) {
-            Toast.makeText(context, "Could not share file: ${e.message}", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "File does not exist on device", Toast.LENGTH_SHORT).show()
         }
     } else {
         Toast.makeText(context, "File path unavailable for sharing", Toast.LENGTH_SHORT).show()

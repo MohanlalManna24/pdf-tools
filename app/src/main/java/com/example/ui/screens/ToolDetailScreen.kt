@@ -165,7 +165,7 @@ fun ToolDetailScreen(
         "merge" -> "Merge PDF"
         "split" -> "Split PDF"
         "compress" -> "Compress PDF"
-        "image_to_pdf" -> "Image to PDF"
+        "image_to_pdf", "scanner" -> "Image to PDF"
         "pdf_to_image" -> "PDF to Image"
         "rotate" -> "Rotate PDF"
         "delete" -> "Delete Pages"
@@ -179,7 +179,7 @@ fun ToolDetailScreen(
         "merge" -> "Combine multiple PDFs into one unified document. Drag and drop to reorder."
         "split" -> "Extract specific pages or custom ranges into a new standalone PDF file."
         "compress" -> "Reduce file size while preserving high visual document clarity."
-        "image_to_pdf" -> "Convert gallery images or camera scans into a high quality PDF."
+        "image_to_pdf", "scanner" -> "Convert gallery images or camera scans into a high quality PDF."
         "pdf_to_image" -> "Export each page of your PDF as high resolution PNG/JPEG images."
         "rotate" -> "Orient document pages by 90°, 180°, or 270° clockwise."
         "delete" -> "Select and permanently strip unnecessary pages from your file."
@@ -193,7 +193,7 @@ fun ToolDetailScreen(
     val selectedFiles = remember { mutableStateListOf<SelectedFileModel>() }
 
     val targetMime = when (toolId) {
-        "image_to_pdf" -> "image/*"
+        "image_to_pdf", "scanner" -> "image/*"
         "merge" -> "*/*"
         else -> "application/pdf"
     }
@@ -211,7 +211,7 @@ fun ToolDetailScreen(
             if (tempFile != null) {
                 when (val result = validateFileForTool(tempFile, toolId, selectedFiles)) {
                     is FileValidationResult.Valid -> {
-                        val isImage = toolId == "image_to_pdf" || (PdfEngine.isValidImageFile(tempFile) && !PdfEngine.isValidPdfFile(tempFile))
+                        val isImage = toolId == "image_to_pdf" || toolId == "scanner" || (PdfEngine.isValidImageFile(tempFile) && !PdfEngine.isValidPdfFile(tempFile))
                         val pages = if (isImage) 1 else PdfEngine.getPdfPageCount(tempFile)
                         val sizeKb = (tempFile.length() / 1024).coerceAtLeast(1)
                         val sizeFormatted = if (sizeKb > 1024) "${String.format("%.1f", sizeKb / 1024.0)} MB" else "$sizeKb KB"
@@ -1711,7 +1711,7 @@ fun ToolDetailScreen(
 
 private fun isFileSupportedForTool(toolId: String, file: File): Boolean {
     return when (toolId) {
-        "image_to_pdf" -> PdfEngine.isValidImageFile(file)
+        "image_to_pdf", "scanner" -> PdfEngine.isValidImageFile(file)
         "merge" -> PdfEngine.isValidPdfFile(file) || PdfEngine.isValidImageFile(file)
         else -> PdfEngine.isValidPdfFile(file)
     }
@@ -1719,7 +1719,7 @@ private fun isFileSupportedForTool(toolId: String, file: File): Boolean {
 
 private fun getToolExpectedFormatDescription(toolId: String): String {
     return when (toolId) {
-        "image_to_pdf" -> "Image files (JPG, PNG, WEBP)"
+        "image_to_pdf", "scanner" -> "Image files (JPG, PNG, WEBP)"
         "merge" -> "PDF documents or Image files"
         else -> "PDF documents (.pdf)"
     }
